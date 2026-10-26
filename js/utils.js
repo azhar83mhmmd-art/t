@@ -1,4 +1,14 @@
 // Utilitas UI bersama: ikon, badge verified, toast, modal, navigasi.
+export const THEMES = { orvix: ['ORVIX', 'Gelap, aksen biru elektrik dan cyan', '#05070B'], brutal: ['Neo Brutalism', 'Kontras tinggi, border tebal, bayangan keras', '#FFF4D6'], glass: ['Glassmorphism', 'Panel kaca semi-transparan dengan blur halus', '#0B1020'] };
+// Terapkan tema ke seluruh halaman (atribut data-theme di <html>) dan simpan lokal agar tidak berkedip saat dimuat ulang.
+export function applyTheme(t) {
+  if (!THEMES[t]) t = 'orvix'; const r = document.documentElement;
+  if (t === 'orvix') delete r.dataset.theme; else r.dataset.theme = t;
+  try { localStorage.setItem('orvix:theme', t); } catch { /* abaikan */ }
+  const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = THEMES[t][2];
+  return t;
+}
+export const currentTheme = () => document.documentElement.dataset.theme || 'orvix';
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -44,7 +54,15 @@ const P = {
   share: '<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.9 7.6-4.3M8.2 13.1l7.6 4.3"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   clip: '<path d="m20 11-8.5 8.5a5 5 0 0 1-7-7L13 4a3.3 3.3 0 0 1 4.7 4.7L9.2 17.2a1.7 1.7 0 0 1-2.4-2.4L14 7.6"/>',
-  mute: '<path d="M4 9v6h4l5 4V5L8 9zM17 9l5 6M22 9l-5 6"/>'
+  mute: '<path d="M4 9v6h4l5 4V5L8 9zM17 9l5 6M22 9l-5 6"/>',
+  checks: '<path d="m2 12.5 4.5 4.5L15 7.5M10 15.5l1.5 1.5L21 7.5"/>',
+  reply: '<path d="M9 7 4 12l5 5M4 12h10a6 6 0 0 1 6 6v1"/>',
+  timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>',
+  palette: '<path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-.9 2-1.8 0-1.4-1.2-1.6-1.2-2.8 0-.9.7-1.4 1.6-1.4H17a4 4 0 0 0 4-4C21 6.7 17 3 12 3z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/>',
+  repost: '<path d="M17 3l4 4-4 4M3 11V9a2 2 0 0 1 2-2h16M7 21l-4-4 4-4M21 13v2a2 2 0 0 1-2 2H3"/>',
+  badge: '<path d="M12 3l2.4 2 3.1-.2.9 3 2.6 1.7-1 2.9 1 2.9-2.6 1.7-.9 3-3.1-.2L12 21l-2.4-2-3.1.2-.9-3L3 14.5l1-2.9-1-2.9L5.6 7l.9-3 3.1.2z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+  msg: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  contacts: '<rect x="4" y="3" width="15" height="18" rx="2"/><circle cx="11.5" cy="10" r="2.5"/><path d="M7.5 17a4 4 0 0 1 8 0M21 8v3M21 14v3"/>'
 };
 export const icon = (n, s = 20) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${P[n] || ''}</svg>`;
 
