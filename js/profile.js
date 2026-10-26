@@ -1,14 +1,15 @@
 // Profil, pengaturan privasi, keamanan, blokir, hapus akun.
 import { sb, requireAuth, cacheMe, logout, fetchProfiles, purgeAvatarFiles, purgeUserFiles, errMsg } from './supabase.js';
-import { $, esc, icon, avatar, nameWithBadge, toast, setBusy, openModal, confirmDialog, copyText, validateImage, extOf, mountShell } from './utils.js';
+import { $, esc, icon, avatar, nameWithBadge, toast, setBusy, openModal, confirmDialog, copyText, validateImage, extOf, mountShell, THEMES, applyTheme, currentTheme, relTime } from './utils.js';
 
 const { profile: me } = await requireAuth({ shell: '/profile' });
 mountShell('/profile', me.role === 'admin');
 const body = $('#body');
 const VIS = { friends: 'Teman saya', public: 'Semua pengguna', only_me: 'Hanya saya' };
+const MSGP = { friends: ['Harus berteman terlebih dahulu', 'Orang yang menemukan ID ORVIX-mu harus mengirim permintaan pertemanan dan diterima sebelum bisa chat.'], anyone: ['Izinkan chat langsung', 'Pengguna yang menemukan akunmu lewat ID ORVIX bisa langsung memulai chat tanpa berteman. Blokir tetap berlaku.'] };
 
 async function upd(fields) {
-  const { data, error } = await sb.from('profiles').update(fields).eq('id', me.id).select('display_name,username,avatar_url,status_text,profile_public,show_last_seen,story_visibility').single();
+  const { data, error } = await sb.from('profiles').update(fields).eq('id', me.id).select('display_name,username,avatar_url,status_text,profile_public,show_last_seen,story_visibility,who_can_message,theme').single();
   if (error) throw error; Object.assign(me, data); cacheMe(me); return data;
 }
 const sw = (id, on, label) => `<button class="switch" role="switch" id="${id}" aria-checked="${on}" aria-label="${label}"></button>`;
@@ -22,13 +23,17 @@ function render() {
    <h2 style="margin-top:10px;font-size:22px">${nameWithBadge(me.display_name, me.is_verified, 20)} <button class="ibtn" id="editP" aria-label="Edit profil" style="display:inline-grid;vertical-align:middle">${icon('edit', 18)}</button></h2>
    <p class="dim">@${esc(me.username)}</p>
    <p class="pid" style="margin-top:6px"><span>ID ${esc(me.orvix_id)}</span><button class="ibtn" id="cpId" aria-label="Salin ID ORVIX" style="width:32px;height:32px">${icon('copy', 16)}</button></p>
-   <p style="margin:10px 16px 2px">${esc(me.status_text || 'Belum ada status')}</p><p class="dim">Bergabung ${joined}</p>
+   <p class="sec" style="margin:12px 0 0">Info</p><p style="margin:2px 16px">${esc(me.status_text || 'Belum ada info')}</p><p class="dim">Bergabung ${joined}</p>
    <button class="btn" id="editP2" style="margin-top:14px">${icon('edit', 18)} Edit profil</button></div>
   <div class="setrow">${icon('globe', 24)}<span class="grow"><b>Profil publik</b><small>Siapa pun bisa melihat foto dan statusmu</small></span>${sw('swPub', me.profile_public, 'Profil publik')}</div>
   <p class="sec">Privasi</p>
   <button class="setrow" id="rowStory">${icon('updates', 24)}<span class="grow"><b>Siapa yang bisa melihat story-ku</b><small>${VIS[me.story_visibility]} (default untuk story baru)</small></span>${icon('chev', 18)}</button>
+  <button class="setrow" id="rowMsg">${icon('msg', 24)}<span class="grow"><b>Siapa yang dapat mengirim pesan kepada saya?</b><small>${MSGP[me.who_can_message || 'friends'][0]}</small></span>${icon('chev', 18)}</button>
   <div class="setrow">${icon('clock', 24)}<span class="grow"><b>Terakhir aktif dan status online</b><small>${me.show_last_seen ? 'Terlihat oleh teman dan lawan chat' : 'Disembunyikan'}</small></span>${sw('swSeen', me.show_last_seen, 'Tampilkan terakhir aktif')}</div>
+  <p class="sec">Tampilan</p>
+  <div class="themes" role="radiogroup" aria-label="Tema aplikasi">${Object.entries(THEMES).map(([k, [n, d]]) => `<button class="theme-card th-${k}" role="radio" aria-checked="${currentTheme() === k}" data-th="${k}"><span class="th-prev"><i></i><i></i><i></i></span><b>${n}</b><small>${d}</small></button>`).join('')}</div>
   <p class="sec">Akun</p>
+  ${me.is_verified ? `<div class="setrow">${icon('badge', 24)}<span class="grow"><b>Akun terverifikasi</b><small>Lencana terverifikasi aktif di profil, chat, dan story</small></span></div>` : `<button class="setrow" id="rowVerif">${icon('badge', 24)}<span class="grow"><b>Ajukan verifikasi kreator/bisnis</b><small>Dapatkan lencana jika memenuhi kriteria ORVIX</small></span>${icon('chev', 18)}</button>`}
   <button class="setrow" id="rowPhoto">${icon('camera', 24)}<span class="grow"><b>Ganti foto profil</b></span>${icon('chev', 18)}</button>
   <button class="setrow" id="rowDelPhoto">${icon('trash', 24)}<span class="grow"><b>Hapus foto profil</b></span>${icon('chev', 18)}</button>
   <div class="setrow">${icon('bell', 24)}<span class="grow"><b>Notifikasi</b><small>Notifikasi browser untuk pesan baru</small></span>${sw('swNotif', notifOn, 'Notifikasi')}</div>
@@ -73,22 +78,70 @@ function wire() {
     const m = openModal({ title: 'Visibilitas story', sheet: true, html: `<div class="col">${Object.entries(VIS).map(([k, v]) => `<button class="btn ${k === me.story_visibility ? 'primary' : ''}" data-v="${k}">${v}</button>`).join('')}</div>` });
     m.el.onclick = guard(async (e) => { const v = e.target.closest('[data-v]')?.dataset.v; if (!v) return; await upd({ story_visibility: v }); m.close(); render(); });
   };
+  $('#rowMsg').onclick = msgPermModal; $('#rowVerif') && ($('#rowVerif').onclick = verifModal);
+  document.querySelectorAll('[data-th]').forEach((b) => b.onclick = guard(async () => {
+    const k = b.dataset.th; applyTheme(k); render();   // langsung terpasang; sinkron ke akun di latar belakang
+    try { await upd({ theme: k }); } catch { toast('Tema tersimpan di perangkat ini, tapi belum tersinkron ke akun.', 'error'); }
+  }));
   $('#rowPw').onclick = passwordModal; $('#rowBlock').onclick = blockedModal; $('#rowDel').onclick = deleteModal;
   $('#rowOut').onclick = async () => { if (await confirmDialog({ title: 'Keluar dari ORVIX?', message: 'Kamu perlu masuk lagi untuk memakai akun ini.', confirmText: 'Logout' })) logout(); };
 }
 
 function editProfile() {
-  const m = openModal({ title: 'Edit profil', html: `<form id="ef" novalidate><div class="field"><label for="dn">Nama tampilan</label><input class="inp" id="dn" maxlength="40" value="${esc(me.display_name)}"></div><div class="field"><label for="un">Username</label><input class="inp" id="un" maxlength="20" autocapitalize="none" value="${esc(me.username)}"></div><div class="field"><label for="st">Status</label><textarea class="inp" id="st" maxlength="140" style="min-height:70px">${esc(me.status_text || '')}</textarea></div><p class="err" id="er" role="alert"></p><button class="btn primary block" id="sv">Simpan</button></form>` });
+  const m = openModal({ title: 'Edit profil', html: `<form id="ef" novalidate><div class="field"><label for="dn">Nama tampilan</label><input class="inp" id="dn" maxlength="40" value="${esc(me.display_name)}"></div><div class="field"><label for="un">Username</label><input class="inp" id="un" maxlength="20" autocapitalize="none" value="${esc(me.username)}"></div><div class="field"><label for="st">Info / Tentang saya</label><textarea class="inp" id="st" maxlength="139" style="min-height:70px" placeholder="Ceritakan singkat tentang kamu">${esc(me.status_text || '')}</textarea><span class="hint" id="stc">${(me.status_text || '').length}/139 · kosongkan untuk menghapus</span></div><p class="err" id="er" role="alert"></p><button class="btn primary block" id="sv">Simpan</button></form>` });
+  $('#st', m.el).oninput = (e) => { $('#stc', m.el).textContent = e.target.value.length + '/139 · kosongkan untuk menghapus'; };
   $('#ef', m.el).onsubmit = async (e) => {
     e.preventDefault(); const er = $('#er', m.el), sv = $('#sv', m.el); er.textContent = '';
     const dn = $('#dn', m.el).value.trim(), un = $('#un', m.el).value.trim().toLowerCase(), st = $('#st', m.el).value.trim();
     if (!dn || dn.length > 40) return (er.textContent = 'Nama tampilan 1-40 karakter.');
     if (!/^[a-z0-9_]{3,20}$/.test(un)) return (er.textContent = 'Username 3-20 karakter: huruf kecil, angka, garis bawah.');
+    if (st.length > 139) return (er.textContent = 'Info maksimal 139 karakter.');
     setBusy(sv, true, 'Menyimpan…');
     try {
       if (un !== me.username) { const { data } = await sb.rpc('username_available', { u: un }); if (!data) throw new Error('Username sudah dipakai.'); }
       await upd({ display_name: dn, username: un, status_text: st || null }); m.close(); render(); toast('Profil disimpan', 'success');
     } catch (x) { setBusy(sv, false); er.textContent = x.code === '23505' ? 'Username sudah dipakai.' : errMsg(x); }
+  };
+}
+
+function msgPermModal() {
+  const m = openModal({ title: 'Siapa yang dapat mengirim pesan kepada saya?', sheet: true, html: `<div class="col" role="radiogroup" style="gap:10px">${Object.entries(MSGP).map(([k, [t, d]]) => `<button class="opt ${(me.who_can_message || 'friends') === k ? 'on' : ''}" role="radio" aria-checked="${(me.who_can_message || 'friends') === k}" data-p="${k}"><b>${t}</b><small>${d}</small></button>`).join('')}</div><p class="hint" style="margin-top:12px">Mengubah pengaturan tidak menghapus chat yang sudah ada. Kamu tetap bisa chat dengan temanmu.</p>` });
+  m.el.onclick = async (e) => {
+    const b = e.target.closest('[data-p]'); if (!b || b.dataset.p === (me.who_can_message || 'friends')) return; b.disabled = true;
+    try { await upd({ who_can_message: b.dataset.p }); m.close(); render(); toast('Pengaturan disimpan', 'success'); } catch (x) { b.disabled = false; toast(errMsg(x), 'error'); }
+  };
+}
+
+const V_CAT = { konten: 'Kreator konten', seni_musik: 'Seniman / musisi', jurnalis_penulis: 'Jurnalis / penulis', toko_bisnis: 'Toko / bisnis', merek: 'Merek (brand)', organisasi: 'Organisasi / komunitas', lainnya: 'Lainnya' };
+const V_ST = { pending: 'Menunggu peninjauan', approved: 'Disetujui', rejected: 'Ditolak', need_info: 'Perlu informasi tambahan', revoked: 'Dicabut', superseded: 'Diganti pengajuan baru' };
+async function verifModal() {
+  const m = openModal({ title: 'Verifikasi kreator/bisnis', wide: true, html: '<p class="dim">Memuat…</p>' });
+  let rows = []; try { const { data, error } = await sb.from('verification_requests').select('id,kind,category,status,reject_reason,created_at,reviewed_at').order('created_at', { ascending: false }).limit(5); if (error) throw error; rows = data || []; } catch (x) { m.el.innerHTML = `<p class="err">${esc(errMsg(x))}</p>`; return; }
+  const last = rows[0], hist = rows.length ? `<p class="sec" style="margin:16px 0 6px">Riwayat</p><div class="col" style="gap:6px">${rows.map((r) => `<div class="card sm"><b>${r.kind === 'business' ? 'Bisnis' : 'Kreator'} · ${V_CAT[r.category] || r.category}</b> <span class="pill ${r.status === 'rejected' || r.status === 'revoked' ? 'bad' : r.status === 'approved' ? 'good' : ''}">${V_ST[r.status]}</span><br><span class="dim">${relTime(r.created_at)}</span>${r.reject_reason && ['rejected', 'need_info'].includes(r.status) ? `<p class="muted" style="margin-top:4px">Catatan admin: ${esc(r.reject_reason)}</p>` : ''}</div>`).join('')}</div>` : '';
+  if (last?.status === 'pending') { m.el.innerHTML = `<div class="alert info">Pengajuanmu sedang ditinjau tim ORVIX. Kami akan memberi tahu kamu saat ada keputusan.</div>${hist}`; return; }
+  const cool = last?.status === 'rejected' && last.reviewed_at && Date.now() - new Date(last.reviewed_at) < 30 * 864e5;
+  if (cool) { m.el.innerHTML = `<div class="alert warn">Pengajuan terakhir ditolak. Kamu bisa mengajukan lagi 30 hari setelah keputusan.</div>${hist}`; return; }
+  m.el.innerHTML = `<p class="muted" style="margin-bottom:12px">Lencana diberikan kepada kreator dan bisnis yang asli dan aktif. Bukti yang kamu unggah disimpan privat dan hanya dilihat admin berwenang.</p>${last?.status === 'need_info' ? `<div class="alert warn" style="margin-bottom:12px">Admin meminta informasi tambahan: ${esc(last.reject_reason || '')}. Kirim ulang pengajuan dengan data yang diminta.</div>` : ''}
+  <form id="vf" novalidate><div class="field"><label for="vk">Jenis akun</label><select class="inp" id="vk"><option value="creator">Kreator</option><option value="business">Bisnis</option></select></div>
+  <div class="field"><label for="vc">Kategori</label><select class="inp" id="vc">${Object.entries(V_CAT).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
+  <div class="field"><label for="vd">Tentang kamu / usahamu (20–1000 karakter)</label><textarea class="inp" id="vd" maxlength="1000" style="min-height:90px"></textarea></div>
+  <div class="field"><label>Tautan pendukung (opsional, maks. 3)</label><input class="inp vl" placeholder="https://" inputmode="url"><input class="inp vl" placeholder="https://" inputmode="url" style="margin-top:6px"><input class="inp vl" placeholder="https://" inputmode="url" style="margin-top:6px"></div>
+  <div class="field"><label for="ve">Bukti pendukung (1–5 berkas: JPG, PNG, WebP, atau PDF, maks. 5 MB)</label><input class="inp" id="ve" type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf"></div>
+  <p class="err" id="er" role="alert"></p><button class="btn primary block" id="vs">Kirim pengajuan</button></form>${hist}`;
+  $('#vf', m.el).onsubmit = async (e) => {
+    e.preventDefault(); const er = $('#er', m.el), btn = $('#vs', m.el); er.textContent = '';
+    const desc = $('#vd', m.el).value.trim(), files = [...$('#ve', m.el).files], links = [...m.el.querySelectorAll('.vl')].map((x) => x.value.trim()).filter(Boolean);
+    if (desc.length < 20) return (er.textContent = 'Deskripsi minimal 20 karakter.');
+    if (links.some((l) => !/^https?:\/\/\S{3,300}$/.test(l))) return (er.textContent = 'Tautan harus diawali http:// atau https://');
+    if (!files.length || files.length > 5) return (er.textContent = 'Unggah 1–5 berkas bukti.');
+    if (files.some((f) => f.size > 5 * 1048576 || !['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(f.type))) return (er.textContent = 'Berkas harus JPG/PNG/WebP/PDF dan maks. 5 MB.');
+    setBusy(btn, true, 'Mengunggah…'); const paths = [];
+    try {
+      for (const f of files) { const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' }[f.type], path = `${me.id}/${crypto.randomUUID()}.${ext}`; const up = await sb.storage.from('verification-docs').upload(path, f, { contentType: f.type }); if (up.error) throw up.error; paths.push(path); }
+      const { error } = await sb.rpc('orvix_submit_verification', { p_kind: $('#vk', m.el).value, p_category: $('#vc', m.el).value, p_description: desc, p_links: links, p_evidence: paths });
+      if (error) throw error;
+      m.close(); toast('Pengajuan terkirim. Kami akan meninjau secepatnya.', 'success');
+    } catch (x) { if (paths.length) sb.storage.from('verification-docs').remove(paths).catch(() => {}); setBusy(btn, false); er.textContent = errMsg(x); }
   };
 }
 
