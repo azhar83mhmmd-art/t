@@ -1,10 +1,56 @@
 // Utilitas UI bersama: ikon, badge verified, toast, modal, navigasi.
-export const THEMES = { orvix: ['ORVIX', 'Gelap, aksen biru elektrik dan cyan', '#05070B'], brutal: ['Neo Brutalism', 'Gelap arang, border tebal, bayangan keras, aksen kuning', '#17161C'], glass: ['Glassmorphism', 'Kaca gelap buram dengan aurora yang bergerak pelan', '#0A0E1C'] };
+import './emoji.js';
+export const THEMES = { orvix: ['ORVIX', 'Gelap, aksen biru elektrik dan cyan', '#05070B'], brutal: ['Neo Brutalism', 'Krem terang, border hitam tebal, bayangan keras, aksen kuning, pink, dan biru', '#FFD43B'], glass: ['Glassmorphism', 'Kaca gelap buram dengan aurora yang bergerak pelan', '#0A0E1C'] };
 // Terapkan tema ke seluruh halaman (atribut data-theme di <html>) dan simpan lokal agar tidak berkedip saat dimuat ulang.
+/* ================= Wallpaper chat (seperti WhatsApp) ================= */
+// Disimpan per perangkat. dim 0-100 = kepudaran: 0 = wallpaper asli, 100 = tertutup penuh warna latar.
+const WP_KEY = 'orvix:wp';
+export const WALLPAPERS = [
+  { id: 'doodle', n: 'Doodle' }, { id: 'polos', n: 'Polos' }, { id: 'grid', n: 'Kotak' },
+  { id: 'teal', n: 'Teal', g: ['#0F2A2E', '#1A4543', '#CFF5E3', '#9FE3C0'] }, { id: 'senja', n: 'Senja', g: ['#2B2233', '#5A3A45', '#FFD6A5', '#FF9EB7'] },
+  { id: 'hutan', n: 'Hutan', g: ['#10201A', '#244A38', '#C8F0B8', '#8FDDA4'] }, { id: 'samudra', n: 'Samudra', g: ['#0E1C2C', '#1F4160', '#BFE2FF', '#7CC4FF'] },
+  { id: 'malam', n: 'Malam', g: ['#0B0E17', '#212843', '#E2D4FF', '#B7A6FF'] },
+];
+const DOODLE = (c) => `<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M30 38c-6-8 4-17 10-9 6-8 16 1 10 9l-10 10z"/><path d="M120 24l4 9 10 1-7 7 2 10-9-5-9 5 2-10-7-7 10-1z"/><path d="M178 36h22a6 6 0 016 6v12a6 6 0 01-6 6h-12l-8 7v-7h-2a6 6 0 01-6-6V42a6 6 0 016-6z"/><circle cx="70" cy="96" r="11"/><path d="M150 92l12 20h-24z"/><path d="M26 140h22M37 129v22"/><path d="M96 150c0-9 14-9 14 0s-14 18-14 18-14-9-14-18"/><path d="M186 140a14 14 0 11-10 24 10 10 0 0010-24z"/><path d="M60 196c6-10 12 10 18 0s12 10 18 0"/><path d="M150 188l10-12 10 12"/></svg>`;
+const svgUrl = (x) => `url("data:image/svg+xml,${encodeURIComponent(x)}")`;
+export const getWallpaper = () => { try { const w = JSON.parse(localStorage.getItem(WP_KEY) || 'null'); if (w && typeof w === 'object') return { id: w.id || 'doodle', dim: Math.min(100, Math.max(0, +w.dim >= 0 ? +w.dim : 30)), img: w.img || null }; } catch { /* abaikan */ } return { id: 'doodle', dim: 30, img: null }; };
+export function wpStyle(w = getWallpaper(), theme = currentTheme()) {
+  const light = theme === 'brutal', ov = light ? '255,246,220' : '0,0,0', st = light ? '17,17,17' : '255,255,255', base = light ? '#FFF1C9' : theme === 'glass' ? '#0F151B' : '#0F1519';
+  let img = 'none', size = 'cover', rep = 'no-repeat', bg = base;
+  if (w.id === 'custom' && w.img) img = `url("${w.img}")`;
+  else if (w.id === 'doodle') { img = svgUrl(DOODLE(`rgba(${st},${light ? .16 : .075})`)); size = '220px'; rep = 'repeat'; }
+  else if (w.id === 'grid') { img = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28"><path d="M0 .5H28M.5 0V28" stroke="rgba(${st},${light ? .12 : .06})" fill="none"/></svg>`); size = '28px 28px'; rep = 'repeat'; }
+  else if (w.id !== 'polos') { const d = WALLPAPERS.find((x) => x.id === w.id); if (d?.g) { const [a, b] = light ? [d.g[2], d.g[3]] : [d.g[0], d.g[1]]; img = `linear-gradient(160deg,${a},${b})`; } }
+  return { '--wp-img': img, '--wp-size': size, '--wp-rep': rep, '--wp-bg': bg, '--wp-ov': ov, '--wp-a': (w.dim / 100).toFixed(2) };
+}
+export function applyWallpaper(w = getWallpaper()) { const r = document.documentElement; Object.entries(wpStyle(w)).forEach(([k, v]) => r.style.setProperty(k, v)); }
+export function saveWallpaper(w) { try { localStorage.setItem(WP_KEY, JSON.stringify(w)); } catch { return false; } applyWallpaper(w); return true; }
+async function shrinkImage(file, max = 1280) {
+  const url = URL.createObjectURL(file);
+  try { const im = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('Gambar tidak bisa dibaca')); i.src = url; });
+    const k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', 0.74); } finally { URL.revokeObjectURL(url); }
+}
+export function wallpaperModal() {
+  let w = getWallpaper();
+  const tiles = () => [...WALLPAPERS, ...(w.img ? [{ id: 'custom', n: 'Foto saya' }] : [])].map((x) => `<button type="button" class="wp-t" role="radio" aria-checked="${w.id === x.id}" data-wp="${x.id}" aria-label="Wallpaper ${x.n}"><span class="wp-sw" style="${Object.entries(wpStyle({ ...w, id: x.id, dim: 0 })).map(([k, v]) => `${k}:${String(v).replace(/"/g, '&quot;')}`).join(';')}"></span><small>${x.n}</small></button>`).join('');
+  const m = openModal({ title: 'Wallpaper chat', html: `<div class="wp-prev msgs" aria-hidden="true"><span class="wp-b in">Halo! Ini contoh wallpaper chat kamu</span><span class="wp-b out">Mantap, terlihat jelas 👍</span></div>
+    <div class="field" style="margin-top:14px"><label for="wpd">Kepudaran: <b id="wpv">${w.dim}</b>%</label><input id="wpd" type="range" min="0" max="100" step="1" value="${w.dim}" style="width:100%"><p class="hint">0 = wallpaper apa adanya, 100 = tertutup penuh.</p></div>
+    <div class="wp-grid" id="wpg" role="radiogroup" aria-label="Pilih wallpaper">${tiles()}</div>
+    <div class="row gap" style="margin-top:14px;flex-wrap:wrap"><button class="btn" id="wpu">${icon('image', 18)} Pakai fotoku</button><button class="btn" id="wpr">Kembali ke default</button></div><input id="wpf" type="file" accept="image/jpeg,image/png,image/webp" hidden>` });
+  const live = () => { saveWallpaper(w) || toast('Penyimpanan perangkat penuh. Wallpaper hanya berlaku sementara.', 'error'); const g = $('#wpg', m.el); g.innerHTML = tiles(); };
+  $('#wpd', m.el).oninput = (e) => { w = { ...w, dim: +e.target.value }; $('#wpv', m.el).textContent = w.dim; applyWallpaper(w); };
+  $('#wpd', m.el).onchange = () => saveWallpaper(w);
+  $('#wpg', m.el).onclick = (e) => { const b = e.target.closest('[data-wp]'); if (!b) return; w = { ...w, id: b.dataset.wp }; live(); };
+  $('#wpu', m.el).onclick = () => $('#wpf', m.el).click();
+  $('#wpf', m.el).onchange = async (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; if (!/^image\/(jpeg|png|webp)$/.test(f.type)) return toast('Pilih gambar JPG, PNG, atau WEBP', 'error'); try { w = { ...w, id: 'custom', img: await shrinkImage(f) }; live(); } catch (er) { toast(er.message || 'Gagal memuat gambar', 'error'); } };
+  $('#wpr', m.el).onclick = () => { w = { id: 'doodle', dim: 30, img: null }; $('#wpd', m.el).value = 30; $('#wpv', m.el).textContent = 30; live(); };
+}
+
 // origin {x,y} (opsional): titik klik; bila browser mendukung View Transitions, tema baru "menyebar" dari titik itu.
 export function applyTheme(t, origin) {
   if (!THEMES[t]) t = 'orvix'; const r = document.documentElement, same = currentTheme() === t;
-  const set = () => { if (t === 'orvix') delete r.dataset.theme; else r.dataset.theme = t; };
+  const set = () => { if (t === 'orvix') delete r.dataset.theme; else r.dataset.theme = t; applyWallpaper(); };
   try { localStorage.setItem('orvix:theme', t); } catch { /* abaikan */ }
   const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = THEMES[t][2];
   const calm = matchMedia('(prefers-reduced-motion:reduce)').matches;
@@ -19,6 +65,16 @@ export function applyTheme(t, origin) {
   r.classList.add('theme-fade'); clearTimeout(applyTheme.t); applyTheme.t = setTimeout(() => r.classList.remove('theme-fade'), 450);
   set(); return t;
 }
+
+/* ---- Premium: gaya tampilan (aktif hanya selama Premium berlaku) ---- */
+export const isPremium = (p) => !!p?.premium_until && new Date(p.premium_until).getTime() > Date.now();
+export const LOOKS = { bubble: ['default', 'aurora', 'sunset', 'mint', 'rose', 'mono', 'gold'], accent: ['default', 'aurora', 'sunset', 'mint', 'rose', 'gold'] };
+export function applyLook(p) {
+  const r = document.documentElement, pr = (isPremium(p) && p.premium_prefs) || {};
+  const set = (k, v, list) => { if (v && v !== 'default' && list.includes(v)) r.dataset[k] = v; else delete r.dataset[k]; };
+  set('bubble', pr.bubble, LOOKS.bubble); set('accent', pr.accent, LOOKS.accent);
+  if (pr.ring && isPremium(p)) r.dataset.ring = '1'; else delete r.dataset.ring;
+}
 export const currentTheme = () => document.documentElement.dataset.theme || 'orvix';
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -26,6 +82,12 @@ export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&a
 export const debounce = (fn, ms = 300) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
 const P = {
+  pin: '<path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 14v7"/>',
+  crown: '<path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"/>',
+  sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
+  selall: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/>',
   chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
   updates: '<circle cx="12" cy="12" r="3"/><path d="M12 3a9 9 0 1 0 9 9" stroke-dasharray="3 3"/>',
   phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
@@ -83,30 +145,76 @@ export const icon = (n, s = 20) => `<svg class="ic" width="${s}" height="${s}" v
 const sealPts = (() => { const a = []; for (let i = 0; i < 24; i++) { const r = i % 2 ? 8.4 : 10.4, t = (Math.PI * 2 * i) / 24; a.push((12 + r * Math.cos(t)).toFixed(2) + ',' + (12 + r * Math.sin(t)).toFixed(2)); } return a.join(' '); })();
 export function injectSprite() {
   if (document.getElementById('ov-sprite')) return;
-  document.body.insertAdjacentHTML('afterbegin', '<svg id="ov-sprite" width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="ovGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1769FF"/><stop offset=".6" stop-color="#00A8FF"/><stop offset="1" stop-color="#32D9FF"/></linearGradient></defs></svg>');
+  document.body.insertAdjacentHTML('afterbegin', '<svg id="ov-sprite" width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="ovGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2F73C9"/><stop offset=".6" stop-color="#3F93D6"/><stop offset="1" stop-color="#66B5D6"/></linearGradient></defs></svg>');
 }
-const vbSvg = (s) => `<svg class="vbadge" width="${s}" height="${s}" viewBox="0 0 24 24" role="img" aria-label="Terverifikasi"><title>Terverifikasi</title><polygon points="${sealPts}" fill="url(#ovGrad)" stroke="#32D9FF" stroke-opacity=".5" stroke-width=".6" stroke-linejoin="round"/><path d="m7.8 12.3 2.8 2.8 5.6-6" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-// tap=true: centang jadi tombol yang bisa diketuk (area sentuh besar) dan membuka penjelasan verifikasi
-export const verifiedBadge = (s = 16, tap = false) => tap ? `<span class="vb-t" role="button" tabindex="0" data-vinfo aria-label="Akun terverifikasi. Ketuk untuk info.">${vbSvg(s)}</span>` : vbSvg(s);
-
-
-// Ketuk centang biru (tap=true) -> penjelasan verifikasi. Pasang sekali saja.
-if (!window.__ovVinfo) {
-  window.__ovVinfo = 1;
+/* ================= Sistem badge (satu komponen untuk semua halaman) ================= */
+const SV = (inner) => (s) => `<svg class="vbadge" width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${inner}</svg>`;
+export const BADGES = {
+  official: { n: 'Official', c: '#4B5563', d: 'Ini adalah akun resmi ORVIX.', how: 'Hanya diberikan oleh admin utama ORVIX untuk akun pengumuman, bantuan, dan informasi sistem. Tidak bisa diajukan.',
+    svg: SV('<defs><linearGradient id="ovOff" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6B7482"/><stop offset="1" stop-color="#3A414D"/></linearGradient></defs><path d="M12 2.4l8 3v6.1c0 5-3.4 8.4-8 10.1-4.6-1.7-8-5.1-8-10.1V5.4z" fill="url(#ovOff)" stroke="#D5DBE4" stroke-width="1.2" stroke-linejoin="round"/><path d="M12 7.6l1.4 2.8 3 .45-2.2 2.1.55 3L12 14.5l-2.75 1.45.55-3-2.2-2.1 3-.45z" fill="#fff"/>') },
+  verified: { n: 'Verified', c: '#1D9BF0', d: 'Identitas akun ini telah diperiksa dan disetujui oleh ORVIX.', how: 'Pengguna mengajukan verifikasi, lalu admin ORVIX memeriksa identitasnya. Badge ini tidak otomatis diberikan kepada akun Creator atau Business.',
+    svg: SV(`<polygon points="${sealPts}" fill="url(#ovGrad)" stroke="#66B5D6" stroke-opacity=".5" stroke-width=".6" stroke-linejoin="round"/><path d="m7.8 12.3 2.8 2.8 5.6-6" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>`) },
+  business: { n: 'Business', c: '#22D3EE', d: 'Akun bisnis ini telah melalui pemeriksaan ORVIX.', how: 'Pengguna mengajukan verifikasi bisnis dan admin ORVIX memeriksanya. Badge ini berbeda dari Verified dan tidak otomatis memberi Verified.',
+    svg: SV('<rect x="2.6" y="2.6" width="18.8" height="18.8" rx="5.4" fill="#22D3EE"/><path d="M7.4 17.4V8.2h5.2v9.2M12.6 11.4h4v6M6.2 17.4h11.6M9.4 10.6h1.2M9.4 13h1.2" fill="none" stroke="#06242B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>') },
+  creator: { n: 'Creator', c: '#8B5CF6', d: 'Pengguna ini telah memenuhi persyaratan program kreator ORVIX.', how: 'Diberikan melalui pengajuan atau program kreator resmi yang disetujui admin. Creator tidak otomatis berarti identitas sudah terverifikasi.',
+    svg: SV('<circle cx="12" cy="12" r="9.6" fill="#8B5CF6"/><path d="M12 5.8l1.7 4.5 4.5 1.7-4.5 1.7L12 18.2l-1.7-4.5L5.8 12l4.5-1.7z" fill="#fff"/>') },
+  premium: { n: 'ORVIX Premium', c: '#F5B301', d: 'Pengguna ini memiliki langganan ORVIX Premium yang aktif.', how: 'Aktif otomatis selama langganan valid. Badge hilang saat langganan berakhir.',
+    svg: SV('<path d="M3.2 18.4l-1-10 5.4 4.3L12 4.8l4.4 7.9 5.4-4.3-1 10z" fill="#F5B301" stroke="#FFE08A" stroke-width="1" stroke-linejoin="round"/><rect x="3.6" y="18.6" width="16.8" height="2.4" rx="1.2" fill="#B97F00"/>') },
+};
+const BORDER = ['official', 'verified', 'business', 'creator', 'premium'];
+const premiumOn = (u) => !!u?.premium_until && new Date(u.premium_until).getTime() > Date.now();
+export const badgeKeys = (u) => (!u ? [] : BORDER.filter((k) => (k === 'premium' ? premiumOn(u) : !!u['is_' + k])));
+export const BF = new Map();    // id -> {is_verified,is_creator,is_business,is_official,premium_until}
+let badgeLoader = null; export const setBadgeLoader = (fn) => { badgeLoader = fn; };
+export function badgeHtml(key, s = 16, tap = false, u = null) {
+  const b = BADGES[key]; if (!b) return '';
+  const until = key === 'premium' && u?.premium_until ? ` data-until="${esc(u.premium_until)}"` : '';
+  return tap ? `<span class="vb-t" role="button" tabindex="0" data-binfo="${key}"${until} aria-label="Badge ${b.n}. Ketuk untuk info.">${b.svg(s)}</span>` : `<span class="vb-s" role="img" aria-label="Badge ${b.n}" title="${b.n}">${b.svg(s)}</span>`;
+}
+export const badgesHtml = (u, s = 16, tap = false) => badgeKeys(u).map((k) => badgeHtml(k, s, tap, u)).join('');
+// Kompatibilitas: centang Verified tunggal (dipakai halaman saluran)
+export const verifiedBadge = (s = 16, tap = false) => badgeHtml('verified', s, tap);
+// v: objek profil (punya kolom badge) atau boolean is_verified dari RPC lama; id: user id agar badge lengkap dimuat otomatis
+export function nameWithBadge(n, v, s = 15, tap = false, id = null) {
+  const u = v && typeof v === 'object' ? v : (id && BF.get(id)) || (v ? { is_verified: true } : null);
+  if (id && v && typeof v === 'object') BF.set(id, v);
+  return `<span class="nm"${id ? ` data-bid="${esc(id)}" data-bs="${s}" data-bt="${tap ? 1 : 0}"` : ''}>${esc(n)}<span class="bset">${badgesHtml(u, s, tap)}</span></span>`;
+}
+// Isi ulang badge di semua nama yang sudah tampil (dipakai setelah data badge dimuat / berubah)
+export function hydrateBadges(root = document) {
+  root.querySelectorAll('.nm[data-bid]').forEach((el) => {
+    const u = BF.get(el.dataset.bid); if (!u) return;
+    const set = el.querySelector('.bset'), html = badgesHtml(u, +el.dataset.bs || 15, el.dataset.bt === '1');
+    if (set && set.dataset.h !== html) { set.innerHTML = html; set.dataset.h = html; }
+  });
+}
+export async function loadBadges(ids) {
+  ids = [...new Set(ids)].filter(Boolean); if (!ids.length || !badgeLoader) return;
+  try { (await badgeLoader(ids)).forEach((r) => BF.set(r.id, r)); hydrateBadges(); } catch { /* kolom badge belum ada (SQL 12i belum dijalankan): tampil centang lama */ }
+}
+if (!window.__ovBadge) {
+  window.__ovBadge = 1;
+  const vis = () => [...document.querySelectorAll('.nm[data-bid]')].map((e) => e.dataset.bid);
+  let t = 0; const queue = () => { clearTimeout(t); t = setTimeout(() => loadBadges(vis().filter((i) => !BF.has(i))), 60); };
+  const start = () => { new MutationObserver(queue).observe(document.body, { childList: true, subtree: true }); queue();
+    const refresh = () => { if (!document.hidden) loadBadges(vis()); };   // badge dicabut / langganan berakhir tercermin tanpa reload
+    setInterval(refresh, 45000); document.addEventListener('visibilitychange', refresh); };
+  document.readyState === 'loading' ? addEventListener('DOMContentLoaded', start) : start();
   document.addEventListener('click', (e) => {
-    const b = e.target.closest?.('[data-vinfo]'); if (!b) return;
-    e.preventDefault(); e.stopPropagation();
-    openModal({ title: 'Akun terverifikasi', sheet: true, html: `<div class="vinfo"><span class="vinfo-ic">${vbSvg(56)}</span><p><b>Lencana ini asli.</b></p><p class="muted">ORVIX sudah memeriksa bahwa akun ini milik kreator, bisnis, atau organisasi yang asli dan aktif. Lencana hanya diberikan oleh tim ORVIX dan tidak bisa dibeli atau dipasang sendiri.</p></div>` });
+    const b = e.target.closest?.('[data-binfo]'); if (!b) return; e.preventDefault(); e.stopPropagation();
+    const k = b.dataset.binfo, d = BADGES[k]; if (!d) return;
+    const extra = k === 'premium' && b.dataset.until ? `<p class="vinfo-x">Aktif hingga ${new Intl.DateTimeFormat('id-ID', { dateStyle: 'long' }).format(new Date(b.dataset.until))}</p>` : '';
+    openModal({ title: d.n, sheet: true, html: `<div class="vinfo" style="--bc:${d.c}"><span class="vinfo-ic">${d.svg(56)}</span><span class="vinfo-tag"><i></i>${d.n}</span><p><b>${d.d}</b></p>${extra}<p class="muted">${d.how}</p></div>` });
   }, true);
-  document.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('[data-vinfo]')) { e.preventDefault(); e.target.click(); } });
+  document.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('[data-binfo]')) { e.preventDefault(); e.target.click(); } });
 }
+
 
 export function avatar(name, url, size = 44) {
   const ch = esc((name || '?').trim().charAt(0).toUpperCase() || '?');
   const st = `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.42)}px`;
   return url ? `<span class="av" style="${st}"><img src="${esc(url)}" alt="" loading="lazy" onerror="this.remove()"><b>${ch}</b></span>` : `<span class="av" style="${st}"><b>${ch}</b></span>`;
 }
-export const nameWithBadge = (n, v, s = 15, tap = false) => `<span class="nm">${esc(n)}${v ? verifiedBadge(s, tap) : ''}</span>`;
 
 const dtf = (o) => new Intl.DateTimeFormat('id-ID', o);
 export const fmtTime = (d) => dtf({ hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(d)).replace('.', ':');
@@ -243,7 +351,7 @@ function ddClose() { document.querySelectorAll('.dd-back').forEach((e) => e.remo
 
 /* ---------- Layar profil penuh (profil teman / info grup) ---------- */
 // actions: [{ label, icon, tone: 'quick' | 'danger', run(close) }]
-export function profileScreen({ name, username = '', orvixId = '', avatarUrl = null, bannerUrl = null, verified = false, bio = '', seen = '', joined = '', group = false, members = [], actions = [], title = '' }) {
+export function profileScreen({ name, username = '', orvixId = '', avatarUrl = null, bannerUrl = null, verified = false, userId = null, bio = '', seen = '', joined = '', group = false, members = [], actions = [], title = '' }) {
   const prev = document.activeElement, quick = actions.filter((a) => a.tone !== 'danger'), danger = actions.filter((a) => a.tone === 'danger');
   const el = document.createElement('div'); el.className = 'pscreen'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', (group ? 'Info grup ' : 'Profil ') + name);
   const row = (k, v, extra = '') => `<div class="ps-row"><span>${k}</span><b>${v}</b>${extra}</div>`;
@@ -253,13 +361,13 @@ export function profileScreen({ name, username = '', orvixId = '', avatarUrl = n
     <div class="ps-cover ${bannerUrl ? 'has' : ''}" ${bannerUrl ? 'data-zoomb role="button" tabindex="0" aria-label="Perbesar banner"' : ''}>${bannerUrl ? `<img src="${esc(bannerUrl)}" alt="Banner ${esc(name)}" decoding="async" onload="this.classList.add('in')" onerror="this.parentNode.classList.remove('has');this.remove()">` : `<div class="ps-bg" ${avatarUrl ? `style="background-image:url('${esc(avatarUrl)}')"` : ''}></div>`}</div>
     <div class="ps-id">
       <button class="ps-av ${avatarUrl ? 'has' : ''}" ${avatarUrl ? 'data-zoom' : 'tabindex="-1"'} aria-label="${avatarUrl ? 'Perbesar foto' : 'Avatar'}">${group ? `<span class="av" style="width:${SZ}px;height:${SZ}px">${icon('users', 50)}</span>` : avatar(name, avatarUrl, SZ)}</button>
-      <h1>${nameWithBadge(name, verified, 24, true)}</h1>${username ? `<p class="ps-user">@${esc(username)}</p>` : ''}
+      <h1>${nameWithBadge(name, verified, 24, true, userId)}</h1>${username ? `<p class="ps-user">@${esc(username)}</p>` : ''}
       <div class="ps-chips">${seen ? `<span class="chip ${/^Online/.test(seen) ? 'live' : ''}"><i></i>${esc(seen)}</span>` : ''}${group ? `<span class="chip">${members.length} anggota</span>` : ''}${orvixId ? `<button class="chip" data-copy="${esc(orvixId)}" aria-label="Salin ID ORVIX">ID ${esc(orvixId)} ${icon('copy', 14)}</button>` : ''}</div>
       ${quick.length ? `<div class="ps-quick">${quick.map((a) => `<button class="qa" data-act="${actions.indexOf(a)}"><span>${icon(a.icon, 20)}</span><small>${esc(a.label)}</small></button>`).join('')}</div>` : ''}
     </div></section>
   ${group ? '' : `<section class="ps-card"><h3>Info</h3><p class="${bio ? '' : 'muted'}">${esc(bio || 'Belum ada info')}</p></section>`}
-  ${!group ? `<section class="ps-card"><h3>Detail</h3>${username ? rowI('user', 'Username', '@' + esc(username)) : ''}${orvixId ? rowI('badge', 'ID ORVIX', esc(orvixId)) : ''}${joined ? rowI('clock', 'Bergabung', esc(joined)) : ''}${verified ? rowI('shield', 'Status', 'Terverifikasi') : ''}</section>` : ''}
-  ${group ? `<section class="ps-card"><h3>Anggota (${members.length})</h3><div class="ps-mem">${members.map((m) => `<div class="row gap">${avatar(m.name, m.avatar, 42)}<span class="grow" style="min-width:0">${nameWithBadge(m.name, m.verified)}<br><span class="dim">${m.username ? '@' + esc(m.username) : ''}</span></span>${m.owner ? '<span class="pill">pemilik</span>' : ''}</div>`).join('')}</div></section>` : ''}
+  ${!group ? `<section class="ps-card"><h3>Detail</h3>${username ? rowI('user', 'Username', '@' + esc(username)) : ''}${orvixId ? rowI('badge', 'ID ORVIX', esc(orvixId)) : ''}${joined ? rowI('clock', 'Bergabung', esc(joined)) : ''}</section>` : ''}
+  ${group ? `<section class="ps-card"><h3>Anggota (${members.length})</h3><div class="ps-mem">${members.map((m) => `<div class="row gap">${avatar(m.name, m.avatar, 42)}<span class="grow" style="min-width:0">${nameWithBadge(m.name, m.verified, 15, true, m.id)}<br><span class="dim">${m.username ? '@' + esc(m.username) : ''}</span></span>${m.owner ? '<span class="pill">pemilik</span>' : ''}</div>`).join('')}</div></section>` : ''}
   ${danger.length ? `<section class="ps-card ps-danger">${danger.map((a) => `<button class="ps-d" data-act="${actions.indexOf(a)}">${icon(a.icon, 20)}<span>${esc(a.label)}</span></button>`).join('')}</section>` : ''}</div>`;
   document.body.append(el); document.body.classList.add('noscroll'); history.pushState({ ps: 1 }, '');
   let gone = false;
@@ -277,3 +385,5 @@ export function profileScreen({ name, username = '', orvixId = '', avatarUrl = n
   el.querySelector('[data-back]').focus();
   return { el, close };
 }
+
+applyWallpaper();   // dipanggil setelah semua deklarasi (currentTheme dll.) siap
