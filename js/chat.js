@@ -2,7 +2,7 @@
 import { sb, requireAuth, track, fetchProfiles, fetchFriendships, errMsg } from './supabase.js';
 import { sendMessage, removeMedia, mediaHTML, hydrate, lightbox, isPlaceholder, ACCEPT } from './media.js';
 import { shareInvite } from './share.js';
-import { $, $$, esc, icon, avatar, nameWithBadge, verifiedBadge, fmtTime, fmtDay, listTime, relTime, toast, setBusy, openModal, confirmDialog, copyText, debounce, mountShell } from './utils.js';
+import { $, $$, esc, icon, avatar, nameWithBadge, verifiedBadge, fmtTime, fmtDay, listTime, relTime, toast, setBusy, openModal, confirmDialog, copyText, debounce, mountShell, profileScreen } from './utils.js';
 
 const { profile: me } = await requireAuth({ shell: '/chat' });
 mountShell('/chat', me.role === 'admin');
@@ -96,7 +96,7 @@ function closeConv() {
   activeId = null; msgs = []; layout.classList.remove('open'); document.body.classList.remove('in-conv');
   thread.innerHTML = `<div class="empty" style="margin:auto">${icon('chat', 44)}<h3>Pilih percakapan</h3><p>Atau tambahkan teman dengan ID ORVIX.</p></div>`; renderList();
 }
-addEventListener('popstate', () => { if (activeId) closeConv(); });
+addEventListener('popstate', () => { if (activeId && !document.querySelector('.pscreen')) closeConv(); });
 
 async function loadMsgs(id, older = false) {
   let qy = sb.from('messages').select('*').eq('conversation_id', id).order('created_at', { ascending: false }).limit(PAGE);
@@ -277,24 +277,40 @@ function convMenu() {
     if (a === 'dis') disappearModal();
     if (a === 'share') shareInvite(c.conv_id, c.title || 'Grup', 'grup');
     if (a === 'report') reportModal(c.other_id, c.other_name);
-    if (a === 'block' && await confirmDialog({ title: `Blokir ${c.other_name}?`, message: 'Kalian tidak bisa saling mengirim pesan dan pertemanan akan dihapus. Kamu bisa membuka blokir di Profil.', confirmText: 'Blokir', danger: true })) {
-      const { error } = await sb.rpc('block_user', { target: c.other_id }); if (error) return toast(errMsg(error), 'error');
-      toast('Pengguna diblokir', 'success'); history.state?.c ? history.back() : closeConv(); loadConvs();
-    }
-    if (a === 'leave' && await confirmDialog({ title: 'Keluar dari grup?', message: 'Kamu tidak akan menerima pesan grup lagi.', confirmText: 'Keluar', danger: true })) {
-      const { error } = await sb.rpc('leave_group', { conv: c.conv_id }); if (error) return toast(errMsg(error), 'error');
-      history.state?.c ? history.back() : closeConv(); loadConvs();
-    }
+    if (a === 'block') blockCurrent(c);
+    if (a === 'leave') leaveCurrent(c);
   };
 }
+async function blockCurrent(c, done) {
+  if (!(await confirmDialog({ title: `Blokir ${c.other_name}?`, message: 'Kalian tidak bisa saling mengirim pesan dan pertemanan akan dihapus. Kamu bisa membuka blokir di Profil.', confirmText: 'Blokir', danger: true }))) return;
+  const { error } = await sb.rpc('block_user', { target: c.other_id }); if (error) return toast(errMsg(error), 'error');
+  toast('Pengguna diblokir', 'success'); done?.(); setTimeout(() => { if (history.state?.c) history.back(); else closeConv(); loadConvs(); }, 220);
+}
+async function leaveCurrent(c, done) {
+  if (!(await confirmDialog({ title: 'Keluar dari grup?', message: 'Kamu tidak akan menerima pesan grup lagi.', confirmText: 'Keluar', danger: true }))) return;
+  const { error } = await sb.rpc('leave_group', { conv: c.conv_id }); if (error) return toast(errMsg(error), 'error');
+  done?.(); setTimeout(() => { if (history.state?.c) history.back(); else closeConv(); loadConvs(); }, 220);
+}
+const joinedText = (d) => (d ? new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(d)) : '');
 async function showInfo() {
   const c = curConv(); if (!c) return;
   if (c.conv_type === 'group') {
     const { data } = await sb.from('conversation_members').select('user_id,role').eq('conversation_id', c.conv_id); await ensureProfiles((data || []).map((d) => d.user_id));
-    return openModal({ title: c.title || 'Grup', html: `<p class="dim" style="margin-bottom:10px">${data.length} anggota</p><div class="col" style="gap:6px">${data.map((d) => { const p = prof.get(d.user_id) || {}; return `<div class="row gap">${avatar(p.display_name, p.avatar_url, 40)}<span class="grow">${nameWithBadge(p.display_name || 'Anggota', p.is_verified)}<br><span class="dim">@${esc(p.username || '')}${d.role === 'owner' ? ' · pemilik' : ''}</span></span></div>`; }).join('')}</div>` });
+    const mem = (data || []).map((d) => { const p = prof.get(d.user_id) || {}; return { name: p.display_name || 'Anggota', avatar: p.avatar_url, verified: p.is_verified, username: p.username, owner: d.role === 'owner' }; }).sort((a, b) => b.owner - a.owner);
+    return profileScreen({ name: c.title || 'Grup', group: true, members: mem, actions: [
+      { label: 'Link grup', icon: 'link', run: () => shareInvite(c.conv_id, c.title || 'Grup', 'grup') },
+      { label: 'Pesan sementara', icon: 'timer', run: () => disappearModal() },
+      { label: 'Keluar grup', icon: 'logout', tone: 'danger', run: (close) => leaveCurrent(c, close) }] });
   }
-  const p = prof.get(c.other_id) || { display_name: c.other_name, username: c.other_username, avatar_url: c.other_avatar, is_verified: c.other_verified };
-  openModal({ title: 'Profil', html: `<div style="text-align:center">${avatar(p.display_name, p.avatar_url, 84)}<h3 style="margin-top:10px">${nameWithBadge(p.display_name, p.is_verified, 18)}</h3><p class="dim">@${esc(p.username)}${p.orvix_id ? ' · ID ' + esc(p.orvix_id) : ''}</p><p class="sec" style="margin:14px 0 2px">Info</p><p class="muted">${esc(p.status_text || 'Belum ada info')}</p></div>` });
+  const base = prof.get(c.other_id) || { display_name: c.other_name, username: c.other_username, avatar_url: c.other_avatar, is_verified: c.other_verified };
+  const PC = 'display_name,username,orvix_id,avatar_url,status_text,is_verified,created_at';
+  const prq = async () => { let r = await sb.from('profiles').select(PC + ',banner_url').eq('id', c.other_id).maybeSingle(); if (r.error) r = await sb.from('profiles').select(PC).eq('id', c.other_id).maybeSingle(); return r; };   // banner_url ada setelah SQL 12h
+  const [{ data: pr }, { data: ls }] = await Promise.all([prq(), sb.rpc('get_last_seen', { target: c.other_id })]);
+  const p = { ...base, ...(pr || {}) };
+  profileScreen({ name: p.display_name, username: p.username, orvixId: p.orvix_id, avatarUrl: p.avatar_url, bannerUrl: p.banner_url, verified: p.is_verified, bio: p.status_text, joined: joinedText(p.created_at), seen: ls ? lastSeenText(ls) : '', actions: [
+    { label: 'Pesan sementara', icon: 'timer', run: () => disappearModal() },
+    { label: 'Laporkan', icon: 'flag', run: () => reportModal(c.other_id, c.other_name) },
+    { label: 'Blokir', icon: 'ban', tone: 'danger', run: (close) => blockCurrent(c, close) }] });
 }
 async function disappearModal() {
   const c = curConv() || {}, grp = c.conv_type === 'group';
@@ -361,6 +377,15 @@ async function requestsModal() {
 }
 $('#btnReq').onclick = requestsModal;
 
+function openContact(u, m) {
+  profileScreen({ name: u.display_name, username: u.username, orvixId: u.orvix_id, avatarUrl: u.avatar_url, bannerUrl: u.banner_url, verified: u.is_verified, bio: u.status_text, seen: u.last_seen_at ? lastSeenText(u.last_seen_at) : '', actions: [
+    { label: 'Chat', icon: 'chat', run: (close) => { close(); setTimeout(() => startChat(u.user_id, [m]), 200); } },
+    { label: 'Laporkan', icon: 'flag', run: () => reportModal(u.user_id, u.display_name) },
+    { label: 'Hapus pertemanan', icon: 'trash', tone: 'danger', run: async (close) => {
+      if (!(await confirmDialog({ title: `Hapus ${u.display_name} dari teman?`, message: 'Riwayat chat tidak dihapus. Kamu bisa menambahkannya lagi nanti.', confirmText: 'Hapus', danger: true }))) return;
+      const { error } = await sb.rpc('remove_friendship', { fid: u.friendship_id }); if (error) return toast(errMsg(error), 'error');
+      toast('Pertemanan dihapus', 'success'); close(); m.el.querySelector(`[data-row="${u.user_id}"]`)?.remove(); } }] });
+}
 async function friendsModal() {
   const m = openModal({ title: 'Teman', wide: true, cls: 'contacts', html: `<div class="row gap" style="margin-bottom:10px"><div class="csearch grow">${icon('search', 18)}<input id="cq" type="search" placeholder="Cari nama atau ID ORVIX" aria-label="Cari kontak" autocomplete="off"></div><select class="inp" id="cs" aria-label="Urutkan" style="width:auto"><option value="name">Nama A–Z</option><option value="activity">Aktivitas terbaru</option></select></div><button class="btn block" id="newG" style="margin-bottom:10px">${icon('users')} Grup baru</button><div id="fl" class="col" style="gap:4px" aria-live="polite"></div><button class="btn block hide" id="more" style="margin-top:10px">Muat lebih banyak</button>` });
   const list = $('#fl', m.el), more = $('#more', m.el), SZ = 20; let off = 0, total = 0, gen = 0;
@@ -380,11 +405,12 @@ async function friendsModal() {
   $('#newG', m.el).onclick = async () => { try { const fr = (await fetchFriendships(me.id)).filter((f) => f.status === 'accepted'); m.close(); groupModal(fr); } catch (e) { toast(errMsg(e), 'error'); } };
   m.el.onclick = (e) => {
     const c = e.target.closest('[data-chat]'); if (c) return startChat(c.dataset.chat, [m]);
+    const rw = e.target.closest('[data-row]'); if (rw && !e.target.closest('[data-more]')) { const u0 = cache.get(rw.dataset.row); if (u0) return openContact(u0, m); }
     const mo = e.target.closest('[data-more]'); if (!mo) return; const u = cache.get(mo.dataset.more); if (!u) return;
     const sh = openModal({ title: u.display_name, sheet: true, html: `<div class="col"><button class="btn" data-a="p">${icon('user')} Lihat profil</button><button class="btn danger" data-a="rm">${icon('trash')} Hapus pertemanan</button></div>` });
     sh.el.onclick = async (ev) => {
       const a = ev.target.closest('[data-a]')?.dataset.a; if (!a) return; sh.close();
-      if (a === 'p') openModal({ title: 'Profil', html: `<div style="text-align:center">${avatar(u.display_name, u.avatar_url, 84)}<h3 style="margin-top:10px">${nameWithBadge(u.display_name, u.is_verified, 18)}</h3><p class="dim">@${esc(u.username)} · ID ${esc(u.orvix_id)}</p>${u.last_seen_at ? `<p class="dim">${esc(lastSeenText(u.last_seen_at))}</p>` : ''}<p class="sec" style="margin:14px 0 2px">Info</p><p class="muted">${esc(u.status_text || 'Belum ada info')}</p></div>` });
+      if (a === 'p') openContact(u, m);
       if (a === 'rm' && await confirmDialog({ title: `Hapus ${u.display_name} dari teman?`, message: 'Riwayat chat tidak dihapus. Kamu bisa menambahkannya lagi nanti.', confirmText: 'Hapus', danger: true })) {
         const { error } = await sb.rpc('remove_friendship', { fid: u.friendship_id }); if (error) return toast(errMsg(error), 'error');
         cache.delete(u.user_id); m.el.querySelector(`[data-row="${u.user_id}"]`)?.remove(); total = Math.max(0, total - 1); off = Math.max(0, off - 1); toast('Pertemanan dihapus', 'success');
