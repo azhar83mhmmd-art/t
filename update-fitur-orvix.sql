@@ -194,7 +194,8 @@ begin
 end $$;
 
 -- Daftar chat: abaikan pesan kedaluwarsa dan pesan sistem pada pratinjau & hitungan belum dibaca
-create or replace function public.list_my_conversations()
+drop function if exists public.list_my_conversations();
+create function public.list_my_conversations()
 returns table (conv_id uuid, conv_type text, title text, other_id uuid, other_username text, other_name text,
                other_avatar text, other_verified boolean, last_content text, last_at timestamptz,
                last_sender uuid, last_deleted boolean, unread bigint, created_at timestamptz)
@@ -668,3 +669,20 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke execute on function public.orvix_list_contacts(text, text, integer, integer) from public, anon;
 grant execute on function public.orvix_list_contacts(text, text, integer, integer) to authenticated;
+
+-- ORVIX BAGIAN 12h: Banner profil
+-- Aman dijalankan ulang. Tidak menghapus data lama.
+-- File banner disimpan di bucket `avatars` (publik, maks. 2 MB) pada folder <user_id>/banner-*.webp,
+-- jadi kebijakan Storage yang sudah ada (folder = auth.uid()) otomatis berlaku. Tidak perlu bucket baru.
+
+alter table public.profiles add column if not exists banner_url text;
+
+-- URL banner hanya boleh menunjuk ke folder milik pemilik akun sendiri (mencegah menempel URL orang lain / situs luar)
+alter table public.profiles drop constraint if exists profiles_banner_url_check;
+alter table public.profiles add constraint profiles_banner_url_check
+  check (banner_url is null or (char_length(banner_url) <= 500
+    and banner_url like ('%/storage/v1/object/public/avatars/' || id::text || '/banner-%')));
+
+-- Pola yang sama seperti kolom pengaturan lain: pengguna terautentikasi boleh membaca; hanya pemilik (policy profiles_update) yang boleh mengubah
+grant select (banner_url) on public.profiles to authenticated;
+grant update (banner_url) on public.profiles to authenticated;
