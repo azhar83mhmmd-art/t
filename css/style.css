@@ -411,3 +411,68 @@ body:not(.in-conv) .fab{bottom:calc(82px + var(--sb))}
 .post.out footer{color:rgba(255,255,255,.8)}
 .post.out .pm{color:rgba(255,255,255,.85)}.post.out .pm:hover,.post.out .pm:active{color:#fff;background:rgba(255,255,255,.2)}
 .post.gone.out{background:var(--s1);border:1px dashed var(--bd);color:var(--tx3);box-shadow:none}
+
+/* ===== Fitur baru: centang pesan, kutipan story, pesan sistem ===== */
+.tick{display:inline-flex;vertical-align:-3px;margin-left:4px;color:var(--tx3)}
+.tick.read{color:var(--cyan)}
+.msg.out .tick{color:rgba(255,255,255,.65)}.msg.out .tick.read{color:#7FF0FF}
+.seen-n{font-size:11px;margin-left:3px;opacity:.8;cursor:pointer}
+.sysmsg{align-self:center;max-width:86%;text-align:center;font-size:12.5px;color:var(--tx2);background:var(--s1);border:1px solid var(--bd);border-radius:999px;padding:5px 12px;margin:6px 0;display:flex;gap:6px;align-items:center}
+.sq{display:flex;gap:10px;align-items:center;background:rgba(0,0,0,.22);border-left:3px solid var(--cyan);border-radius:10px;padding:8px;margin-bottom:6px;min-width:210px}
+.sq img,.sq-t{width:44px;height:44px;border-radius:8px;object-fit:cover;flex:none;display:grid;place-items:center}
+.sq-t.gone{background:var(--s3);color:var(--tx3)}
+.sq small{display:block;opacity:.8}.sq b{font-size:13px}.sq.off{opacity:.75}
+.sq-b{width:44px;height:44px;border-radius:8px;background:var(--s3)}
+.vreply{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;gap:8px;align-items:center;padding:10px 12px calc(10px + var(--sb));background:linear-gradient(transparent,rgba(0,0,0,.7))}
+.vreply .inp{flex:1;border-radius:999px;background:rgba(0,0,0,.45);border-color:rgba(255,255,255,.3);color:#fff}
+.rp-tag{display:inline-flex;gap:4px;align-items:center;font-size:11.5px;color:var(--cyan);margin-left:8px}
+.rpt{display:flex;gap:10px;align-items:flex-start;margin:12px 2px 4px;font-size:14px}
+.rpt small{display:block;color:var(--tx3);font-size:12px}.rpt.off{opacity:.5}
+.rpt input{width:20px;height:20px;accent-color:#1769FF;margin-top:2px}
+.evid{display:block;margin-top:4px;padding:6px 8px;border-left:3px solid var(--danger);background:var(--s1);font-size:13px;border-radius:6px}
+.csearch{display:flex;align-items:center;gap:8px;background:var(--s1);border:1px solid var(--bd);border-radius:12px;padding:0 12px;min-height:44px}
+.csearch input{flex:1;background:none;border:0;outline:0;min-width:0}
+.crow2{padding:8px 2px;border-bottom:1px solid var(--bd)}.on-now{color:var(--ok)}
+.opt{display:block;text-align:left;width:100%;padding:14px;border:1px solid var(--bd);border-radius:14px;background:var(--s1)}
+.opt.on{border-color:var(--bda);box-shadow:0 0 0 1px var(--bda) inset}.opt small{display:block;color:var(--tx2);margin-top:4px}
+.themes{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:6px 0 4px}
+.theme-card{text-align:left;padding:10px;border:1px solid var(--bd);border-radius:14px;background:var(--s1)}
+.theme-card[aria-checked=true]{border-color:var(--bda);box-shadow:0 0 0 2px var(--bda)}
+.theme-card small{display:block;color:var(--tx3);font-size:12px;margin-top:2px}
+.th-prev{display:flex;gap:4px;height:44px;margin-bottom:8px;padding:6px;border-radius:10px}
+.th-prev i{flex:1;border-radius:6px}
+.th-orvix .th-prev{background:#05070B}.th-orvix .th-prev i:nth-child(1){background:#1769FF}.th-orvix .th-prev i:nth-child(2){background:#32D9FF}.th-orvix .th-prev i:nth-child(3){background:#1B2433}
+.th-brutal .th-prev{background:#FFF4D6;border:3px solid #000;box-shadow:3px 3px 0 #000}.th-brutal .th-prev i{border:2px solid #000}.th-brutal .th-prev i:nth-child(1){background:#1769FF}.th-brutal .th-prev i:nth-child(2){background:#FFD23F}.th-brutal .th-prev i:nth-child(3){background:#fff}
+.th-glass .th-prev{background:linear-gradient(135deg,#1769FF,#7B2FFF 60%,#32D9FF)}.th-glass .th-prev i{background:rgba(255,255,255,.25);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.4)}
+
+/* ===== Tema 2: Neo Brutalism ===== */
+:root[data-theme=brutal]{--bg:#FFF4D6;--bg2:#FFEBB8;--s1:#FFFFFF;--s2:#FFF9E8;--s3:#FFE9A8;--bd:#000;--bda:#000;--tx:#0A0A0A;--tx2:#262626;--tx3:#4A4A4A;--blue:#1769FF;--neon:#0B4FD6;--cyan:#0B4FD6;--silver:#0A0A0A;--white:#fff;--danger:#D6002A;--ok:#007A4D;--grad:#FFD23F;--r:6px;color-scheme:light}
+[data-theme=brutal] a{color:#0B4FD6;text-decoration:underline}
+[data-theme=brutal] .btn,[data-theme=brutal] .card,[data-theme=brutal] .modal,[data-theme=brutal] .inp,[data-theme=brutal] .setrow,[data-theme=brutal] .theme-card,[data-theme=brutal] .opt,[data-theme=brutal] .stat,[data-theme=brutal] .pcard,[data-theme=brutal] .sysmsg,[data-theme=brutal] .csearch,[data-theme=brutal] .toast{border:3px solid #000!important;box-shadow:4px 4px 0 #000;border-radius:6px}
+[data-theme=brutal] .btn{font-weight:700;background:#fff;color:#000}
+[data-theme=brutal] .btn:active{transform:translate(3px,3px);box-shadow:1px 1px 0 #000}
+[data-theme=brutal] .btn.primary,[data-theme=brutal] .send{background:#1769FF!important;color:#fff!important;border:3px solid #000;box-shadow:4px 4px 0 #000}
+[data-theme=brutal] .btn.danger{background:#D6002A;color:#fff}
+[data-theme=brutal] .side,[data-theme=brutal] .bottom,[data-theme=brutal] .pane-head,[data-theme=brutal] .thead,[data-theme=brutal] .composer{background:#FFD23F;border-color:#000;border-width:0 0 3px 0;border-style:solid}
+[data-theme=brutal] .side{border-width:0 3px 0 0}[data-theme=brutal] .bottom{border-width:3px 0 0 0}
+[data-theme=brutal] .bottom a.on,[data-theme=brutal] .side a.on{background:#000;color:#FFD23F}
+[data-theme=brutal] .item{border-bottom:2px solid #000}[data-theme=brutal] .item:hover,[data-theme=brutal] .item.on{background:#FFE9A8}
+[data-theme=brutal] .msg{border:3px solid #000;box-shadow:3px 3px 0 #000;border-radius:6px;color:#000}
+[data-theme=brutal] .msg.in{background:#fff}[data-theme=brutal] .msg.out{background:#9CC2FF;color:#000}
+[data-theme=brutal] .msg.out .tick{color:#333}[data-theme=brutal] .msg.out .tick.read{color:#0B4FD6}
+[data-theme=brutal] .unread,[data-theme=brutal] .badge-n{background:#D6002A;color:#fff;border:2px solid #000}
+[data-theme=brutal] .modal-back{background:rgba(0,0,0,.55)}
+[data-theme=brutal] .switch[aria-checked=true]{background:#1769FF;border:2px solid #000}
+[data-theme=brutal] .sq{background:#FFF4D6;border:2px solid #000;border-left-width:6px}
+
+/* ===== Tema 3: Glassmorphism ===== */
+:root[data-theme=glass]{--bg:#0B1020;--bg2:#10172E;--s1:rgba(255,255,255,.07);--s2:rgba(255,255,255,.10);--s3:rgba(255,255,255,.14);--bd:rgba(255,255,255,.20);--bda:#7FB2FF;--tx:#F7F9FF;--tx2:#C6D0EA;--tx3:#9AA8CC;color-scheme:dark}
+[data-theme=glass] body{background:radial-gradient(900px 600px at 10% -10%,#2B4DFF55,transparent 60%),radial-gradient(800px 600px at 100% 10%,#8A3DFF4D,transparent 60%),radial-gradient(700px 500px at 40% 110%,#00D4FF44,transparent 60%),#0B1020;background-attachment:fixed}
+[data-theme=glass] .card,[data-theme=glass] .modal,[data-theme=glass] .setrow,[data-theme=glass] .theme-card,[data-theme=glass] .opt,[data-theme=glass] .stat,[data-theme=glass] .pcard,[data-theme=glass] .side,[data-theme=glass] .bottom,[data-theme=glass] .pane-head,[data-theme=glass] .thead,[data-theme=glass] .composer,[data-theme=glass] .conv-pane,[data-theme=glass] .sysmsg,[data-theme=glass] .csearch,[data-theme=glass] .toast,[data-theme=glass] .inp,[data-theme=glass] .msg.in,[data-theme=glass] .sq{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22);-webkit-backdrop-filter:blur(16px) saturate(140%);backdrop-filter:blur(16px) saturate(140%)}
+[data-theme=glass] .modal{box-shadow:0 20px 60px rgba(0,0,0,.45)}
+[data-theme=glass] .msg.out{background:linear-gradient(135deg,rgba(23,105,255,.85),rgba(0,168,255,.75));border:1px solid rgba(255,255,255,.3)}
+[data-theme=glass] .btn{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.25);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+[data-theme=glass] .btn.primary{background:linear-gradient(135deg,#1769FF,#00A8FF);border-color:rgba(255,255,255,.35)}
+[data-theme=glass] .item:hover,[data-theme=glass] .item.on{background:rgba(255,255,255,.12)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){[data-theme=glass] .card,[data-theme=glass] .modal,[data-theme=glass] .side,[data-theme=glass] .bottom,[data-theme=glass] .inp,[data-theme=glass] .msg.in{background:#18213F}}
+@media (prefers-reduced-motion:reduce){[data-theme=brutal] .btn:active{transform:none}}
