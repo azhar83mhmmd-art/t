@@ -15,14 +15,14 @@ async function api(action, params = {}) {
   return data;
 }
 const fmtDT = (d) => (d ? new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(d)) : '-');
-const NAV = [['dash', 'dash', 'Dashboard'], ['users', 'users', 'Pengguna'], ['reports', 'flag', 'Laporan'], ['audit', 'list', 'Audit log']];
+const NAV = [['dash', 'dash', 'Dashboard'], ['users', 'users', 'Pengguna'], ['reports', 'flag', 'Laporan'], ['verif', 'badge', 'Verifikasi'], ['audit', 'list', 'Audit log']];
 
 function drawSide() {
   side.innerHTML = `<div class="brand"><img src="/assets/mark.png" alt="" width="30" height="30">ORVIX Admin</div>${NAV.map(([k, i, l]) => `<button data-v="${k}" ${k === view ? 'aria-current="true"' : ''}>${icon(i, 18)} ${l}</button>`).join('')}<a class="back" href="/chat">${icon('back', 18)} Ke aplikasi</a>`;
   $$('[data-v]', side).forEach((b) => b.onclick = () => { view = b.dataset.v; state.page = 0; drawSide(); go(); });
 }
 const fail = (e) => { main.innerHTML = `<div class="empty card"><h3>Gagal memuat</h3><p>${esc(errMsg(e))}</p><button class="btn" id="rt" style="margin-top:12px">Coba lagi</button></div>`; $('#rt').onclick = go; };
-const go = () => ({ dash, users, reports, audit }[view])().catch(fail);
+const go = () => ({ dash, users, reports, verif, audit }[view])().catch(fail);
 
 async function dash() {
   main.innerHTML = '<h1 style="margin-bottom:16px">Dashboard</h1><p class="dim">Memuat statistik…</p>';
@@ -70,16 +70,54 @@ function deleteModal(u, parent) {
   go2.onclick = async () => { setBusy(go2, true, 'Menghapus…'); try { await api('delete_user', { user_id: u.id, confirm_username: cu.value }); toast('Pengguna dihapus', 'success'); m.close(); parent.close(); fetchUsers(); } catch (e) { setBusy(go2, false); $('#er', m.el).textContent = errMsg(e); } };
 }
 
-const STAT = { open: 'Baru', reviewing: 'Ditinjau', resolved: 'Selesai', dismissed: 'Ditolak' };
-const REASON = { spam: 'Spam', abuse: 'Pelecehan/kekerasan', impersonation: 'Meniru identitas', inappropriate: 'Konten tidak pantas', other: 'Lainnya' };
+const STAT = { open: 'Baru', reviewing: 'Ditinjau', need_info: 'Butuh informasi', resolved: 'Selesai', dismissed: 'Ditolak' };
+const REASON = { spam: 'Spam', scam: 'Penipuan', doxxing: 'Doxxing / informasi pribadi', abuse: 'Pelecehan / perundungan', threat: 'Ancaman', inappropriate: 'Konten tidak pantas', impersonation: 'Akun palsu / penyamaran', other: 'Lainnya' };
+const RACT = { review: 'Tinjau', need_info: 'Minta informasi', resolve: 'Selesai', dismiss: 'Tolak', warn: 'Beri peringatan', suspend: 'Tangguhkan akun', unsuspend: 'Aktifkan akun' };
+const rpc = async (fn, args) => { const { data, error } = await sb.rpc(fn, args); if (error) throw new Error(/Could not find the function|schema cache/i.test(error.message) ? 'Fungsi belum terpasang. Jalankan sql-parts/12e dan 12f di Supabase SQL Editor.' : errMsg(error)); return data; };
 async function reports() {
-  main.innerHTML = '<h1 style="margin-bottom:14px">Laporan</h1><div id="rl"><p class="dim">Memuat…</p></div>';
-  const r = await api('list_reports', { page: state.page });
-  $('#rl').innerHTML = r.reports.length ? `<div class="tbl">${r.reports.map((x) => `<div class="tr"><span class="grow"><b>${esc(REASON[x.reason] || x.reason)}</b> · <span class="pill ${x.status === 'open' ? 'bad' : ''}">${STAT[x.status]}</span><br><span class="sm">Terlapor: <b>${esc(x.reported?.display_name || '-')}</b> (@${esc(x.reported?.username || '-')}) · Pelapor: @${esc(x.reporter?.username || '-')}</span>${x.details ? `<br><span class="muted sm">${esc(x.details)}</span>` : ''}<br><span class="dim">${fmtDT(x.created_at)}</span></span>${['open', 'reviewing'].includes(x.status) ? `<button class="btn sm" data-r="${x.id}" data-s="reviewing">Tinjau</button><button class="btn sm primary" data-r="${x.id}" data-s="resolved">Selesai</button><button class="btn sm ghost" data-r="${x.id}" data-s="dismissed">Tolak</button>` : ''}${x.reported ? `<button class="btn sm" data-ru="${x.reported_user_id}">Pengguna</button>` : ''}</div>`).join('')}</div>` : '<div class="empty card"><p>Tidak ada laporan.</p></div>';
-  $$('[data-r]').forEach((b) => b.onclick = async () => { setBusy(b, true); try { await api('review_report', { id: b.dataset.r, status: b.dataset.s }); toast('Laporan diperbarui', 'success'); reports().catch(fail); } catch (e) { setBusy(b, false); toast(errMsg(e), 'error'); } });
-  $$('[data-ru]').forEach((b) => b.onclick = () => userModal(b.dataset.ru));
+  main.innerHTML = `<h1 style="margin-bottom:14px">Laporan</h1><div class="row gap" style="margin-bottom:14px"><select class="inp" id="rf" aria-label="Filter status" style="width:auto"><option value="">Semua status</option>${Object.entries(STAT).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div><div id="rl"><p class="dim">Memuat…</p></div>`;
+  $('#rf').value = state.rf || ''; $('#rf').onchange = (e) => { state.rf = e.target.value; state.page = 0; reports().catch(fail); };
+  const r = await rpc('orvix_admin_reports', { p_status: state.rf || null, p_page: state.page }), pages = Math.max(1, Math.ceil(r.total / r.pageSize));
+  $('#rl').innerHTML = (r.reports.length ? `<div class="tbl">${r.reports.map((x) => `<div class="tr" style="flex-wrap:wrap"><span class="grow" style="min-width:240px"><b>${esc(REASON[x.reason] || x.reason)}</b> · <span class="pill ${x.status === 'open' ? 'bad' : ''}">${STAT[x.status] || x.status}</span><br><span class="sm">Terlapor: <b>${esc(x.reported?.display_name || '-')}</b> (@${esc(x.reported?.username || '-')})${x.reported?.is_suspended ? ' <span class="pill bad">ditangguhkan</span>' : ''} · ${x.total_against} laporan total<br>Pelapor: @${esc(x.reporter?.username || '-')}</span>${x.details ? `<br><span class="muted sm">${esc(x.details)}</span>` : ''}${x.message_snapshot ? `<br><span class="evid">Bukti pesan: “${esc(x.message_snapshot)}”</span>` : ''}<br><span class="dim">${fmtDT(x.created_at)}</span>${x.history?.length ? `<details style="margin-top:6px"><summary class="dim">Riwayat tindakan (${x.history.length})</summary>${x.history.map((h) => `<div class="dim">${fmtDT(h.at)} · ${esc(RACT[h.action] || h.action)} oleh @${esc(h.admin || '?')}${h.note ? ' — ' + esc(h.note) : ''}</div>`).join('')}</details>` : ''}</span><button class="btn sm primary" data-rep="${x.id}">Tindakan</button>${x.reported ? `<button class="btn sm" data-ru="${x.reported_user_id}">Pengguna</button>` : ''}</div>`).join('')}</div>` : '<div class="empty card"><p>Tidak ada laporan.</p></div>') + pager(pages);
+  const map = new Map(r.reports.map((x) => [x.id, x]));
+  $$('[data-rep]').forEach((b) => b.onclick = () => reportModal(map.get(b.dataset.rep)));
+  $$('[data-ru]').forEach((b) => b.onclick = () => userModal(b.dataset.ru)); wirePager(reports);
 }
-const ACT = { verify: 'Beri centang biru', unverify: 'Cabut centang biru', suspend: 'Nonaktifkan akun', unsuspend: 'Aktifkan akun', delete_user: 'Hapus pengguna', review_report: 'Tinjau laporan', self_delete: 'Pengguna hapus akun sendiri' };
+const pager = (pages) => `<div class="row between" style="margin-top:14px"><span class="dim">Halaman ${state.page + 1}/${pages}</span><span class="row gap"><button class="btn sm" id="pgp" ${state.page === 0 ? 'disabled' : ''}>Sebelumnya</button><button class="btn sm" id="pgn" ${state.page + 1 >= pages ? 'disabled' : ''}>Berikutnya</button></span></div>`;
+const wirePager = (fn) => { $('#pgp').onclick = () => { state.page--; fn().catch(fail); }; $('#pgn').onclick = () => { state.page++; fn().catch(fail); }; };
+function reportModal(x) {
+  const t = x.reported || {}, acts = ['review', 'need_info', 'warn', 'resolve', 'dismiss', ...(t.role === 'admin' ? [] : [t.is_suspended ? 'unsuspend' : 'suspend'])];
+  const m = openModal({ title: 'Tindak laporan', wide: true, html: `<p class="muted" style="margin-bottom:10px">${esc(REASON[x.reason])} terhadap <b>@${esc(t.username || '-')}</b>. Satu laporan tidak otomatis menangguhkan akun; periksa bukti dulu.</p><div class="field"><label for="rn">Catatan / alasan (wajib untuk peringatan, tolak, minta info, tangguhkan; masuk audit log)</label><textarea class="inp" id="rn" maxlength="500"></textarea></div><p class="err" id="er"></p><div class="row gap" style="flex-wrap:wrap">${acts.map((a) => `<button class="btn ${a === 'suspend' ? 'danger' : a === 'resolve' ? 'primary' : ''}" data-a="${a}">${RACT[a]}</button>`).join('')}</div>` });
+  m.el.onclick = async (e) => {
+    const b = e.target.closest('[data-a]'); if (!b) return; const a = b.dataset.a;
+    if (a === 'suspend' && !(await confirmDialog({ title: `Tangguhkan @${t.username}?`, message: 'Pengguna tidak bisa login atau mengirim pesan sampai diaktifkan kembali.', confirmText: 'Tangguhkan', danger: true }))) return;
+    setBusy(b, true); try { await rpc('orvix_admin_report_action', { p_id: x.id, p_action: a, p_note: $('#rn', m.el).value }); toast('Tindakan dicatat', 'success'); m.close(); reports().catch(fail); } catch (er) { setBusy(b, false); $('#er', m.el).textContent = er.message; }
+  };
+}
+
+const VST = { pending: 'Menunggu', approved: 'Disetujui', rejected: 'Ditolak', need_info: 'Perlu informasi', revoked: 'Dicabut', superseded: 'Diganti', verified: 'Terverifikasi' };
+const VCAT = { konten: 'Kreator konten', seni_musik: 'Seniman / musisi', jurnalis_penulis: 'Jurnalis / penulis', toko_bisnis: 'Toko / bisnis', merek: 'Merek', organisasi: 'Organisasi', lainnya: 'Lainnya' };
+async function verif() {
+  main.innerHTML = `<h1 style="margin-bottom:14px">Verifikasi</h1><div class="row gap" style="margin-bottom:14px"><select class="inp" id="vf" aria-label="Filter status" style="width:auto">${['pending', 'need_info', 'approved', 'rejected', 'revoked', 'verified'].map((k) => `<option value="${k}">${k === 'verified' ? 'Semua akun terverifikasi' : VST[k]}</option>`).join('')}</select></div><div id="vl"><p class="dim">Memuat…</p></div>`;
+  const cur = state.vf || 'pending'; $('#vf').value = cur; $('#vf').onchange = (e) => { state.vf = e.target.value; state.page = 0; verif().catch(fail); };
+  const r = await rpc('orvix_admin_verifications', { p_status: cur, p_page: state.page }), pages = Math.max(1, Math.ceil(r.total / r.pageSize));
+  if (cur === 'verified') {
+    $('#vl').innerHTML = (r.verified.length ? `<div class="tbl">${r.verified.map((u) => `<div class="tr"><span class="grow"><b>${esc(u.display_name)}</b> ${verifiedBadge(14)}<br><span class="dim">@${esc(u.username)} · ID ${esc(u.orvix_id)} · sejak ${fmtDT(u.verified_at)}</span></span><button class="btn sm danger" data-rv="${u.user_id}" data-n="${esc(u.username)}">Cabut</button></div>`).join('')}</div>` : '<div class="empty card"><p>Belum ada akun terverifikasi.</p></div>') + pager(pages);
+    $$('[data-rv]').forEach((b) => b.onclick = async () => { if (!(await confirmDialog({ title: `Cabut verifikasi @${b.dataset.n}?`, message: 'Lencana hilang dari profil, chat, dan story.', confirmText: 'Cabut', danger: true }))) return; setBusy(b, true); try { await rpc('orvix_admin_revoke_verification', { p_user: b.dataset.rv, p_note: null }); toast('Verifikasi dicabut', 'success'); verif().catch(fail); } catch (e) { setBusy(b, false); toast(e.message, 'error'); } });
+    return wirePager(verif);
+  }
+  $('#vl').innerHTML = (r.requests.length ? `<div class="tbl">${r.requests.map((v) => `<div class="tr"><span class="grow"><b>${esc(v.profile.display_name)}</b> (@${esc(v.profile.username)}) · <span class="pill">${VST[v.status]}</span><br><span class="sm">${v.kind === 'business' ? 'Bisnis' : 'Kreator'} · ${VCAT[v.category] || v.category} · ${v.reports_against} laporan terhadap akun</span><br><span class="dim">${fmtDT(v.created_at)}</span></span><button class="btn sm primary" data-vq="${v.id}">Tinjau</button></div>`).join('')}</div>` : '<div class="empty card"><p>Tidak ada pengajuan.</p></div>') + pager(pages);
+  const map = new Map(r.requests.map((v) => [v.id, v])); $$('[data-vq]').forEach((b) => b.onclick = () => verifModal(map.get(b.dataset.vq))); wirePager(verif);
+}
+async function verifModal(v) {
+  const m = openModal({ title: 'Tinjau pengajuan', wide: true, html: `<div class="card sm col" style="gap:6px;margin-bottom:12px"><div><b>${esc(v.profile.display_name)}</b> @${esc(v.profile.username)} · ID ${esc(v.profile.orvix_id)}</div><div>${v.kind === 'business' ? 'Bisnis' : 'Kreator'} · ${VCAT[v.category] || v.category}</div><div style="white-space:pre-wrap">${esc(v.description)}</div>${v.links.length ? `<div>Tautan: ${v.links.map((l) => `<a href="${esc(l)}" target="_blank" rel="noopener noreferrer nofollow">${esc(l)}</a>`).join(' · ')}</div>` : ''}<div id="ev" class="dim">Memuat bukti…</div></div>${['pending', 'need_info'].includes(v.status) ? `<div class="field"><label for="vn">Alasan (wajib untuk tolak / minta informasi; dilihat pemohon)</label><textarea class="inp" id="vn" maxlength="500"></textarea></div><p class="err" id="er"></p><div class="row gap" style="flex-wrap:wrap"><button class="btn primary" data-d="approve">Setujui</button><button class="btn" data-d="need_info">Minta informasi</button><button class="btn danger" data-d="reject">Tolak</button></div>` : `<p class="dim">Status: ${VST[v.status]}${v.reject_reason ? ' · ' + esc(v.reject_reason) : ''}</p>`}` });
+  sb.storage.from('verification-docs').createSignedUrls(v.evidence_paths, 600).then(({ data }) => { const el = $('#ev', m.el); if (!el) return; el.innerHTML = 'Bukti (tautan berlaku 10 menit): ' + (data || []).map((d, i) => d.signedUrl ? `<a href="${esc(d.signedUrl)}" target="_blank" rel="noopener noreferrer">Berkas ${i + 1}</a>` : '').join(' · '); });
+  m.el.onclick = async (e) => {
+    const b = e.target.closest('[data-d]'); if (!b) return; setBusy(b, true);
+    try { await rpc('orvix_admin_review_verification', { p_id: v.id, p_decision: b.dataset.d, p_reason: $('#vn', m.el).value }); toast('Keputusan disimpan', 'success'); m.close(); verif().catch(fail); } catch (er) { setBusy(b, false); $('#er', m.el).textContent = er.message; }
+  };
+}
+const ACT = { report_review: 'Laporan: tinjau', report_need_info: 'Laporan: minta informasi', report_resolve: 'Laporan: selesai', report_dismiss: 'Laporan: ditolak', report_warn: 'Laporan: peringatan', report_suspend: 'Laporan: tangguhkan akun', report_unsuspend: 'Laporan: aktifkan akun', verification_approve: 'Verifikasi: disetujui', verification_reject: 'Verifikasi: ditolak', verification_need_info: 'Verifikasi: minta informasi', verification_revoke: 'Verifikasi: dicabut', verify: 'Beri centang biru', unverify: 'Cabut centang biru', suspend: 'Nonaktifkan akun', unsuspend: 'Aktifkan akun', delete_user: 'Hapus pengguna', review_report: 'Tinjau laporan', self_delete: 'Pengguna hapus akun sendiri' };
 async function audit() {
   main.innerHTML = '<h1 style="margin-bottom:14px">Audit log</h1><div id="al"><p class="dim">Memuat…</p></div>';
   const r = await api('list_audit', { page: state.page }), pages = Math.max(1, Math.ceil(r.total / 30));
