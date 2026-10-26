@@ -8,7 +8,7 @@ const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE
   auth: { persistSession: false, autoRefreshToken: false },
 });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const PROFILE_COLS = "id,orvix_id,username,display_name,avatar_url,status_text,is_verified,verified_at,is_suspended,role,created_at,last_seen_at";
+const PROFILE_COLS = "id,orvix_id,username,display_name,avatar_url,status_text,is_verified,verified_at,is_suspended,role,created_at,last_seen_at,is_creator,is_business,is_official,premium_until";
 
 class HttpError extends Error { constructor(public status: number, msg: string) { super(msg); } }
 // deno-lint-ignore no-explicit-any
