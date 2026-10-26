@@ -3,7 +3,7 @@
 import { sb, track, errMsg } from './supabase.js';
 import { sendMessage, removeMedia, mediaHTML, hydrate, lightbox, isPlaceholder, ACCEPT } from './media.js';
 import { shareInvite, inviteUrl } from './share.js';
-import { $, esc, icon, verifiedBadge, listTime, fmtTime, fmtDay, copyText, validateImage, toast, setBusy, openModal, confirmDialog, debounce } from './utils.js';
+import { $, esc, icon, verifiedBadge, listTime, fmtTime, fmtDay, copyText, validateImage, toast, setBusy, openModal, confirmDialog, debounce, badgeHtml } from './utils.js';
 
 let me, host, mine = [], disc = [], loaded = false, last = 0, ready = false, err = '', q = '';
 let touching = false, pending = false, cache = { m: '', d: '' };
@@ -11,7 +11,7 @@ const num = (n) => Number(n || 0).toLocaleString('id-ID');
 const dateFmt = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 const hue = (s) => { let h = 0; for (const ch of String(s || '?')) h = (h * 31 + ch.codePointAt(0)) % 360; return h; };
 const chAv = (t, s = 52, url = '') => `<span class="chav" style="--h:${hue(t)};--s:${s}px" aria-hidden="true"><b>${esc([...String(t || '?').trim()][0]?.toUpperCase() || '?')}</b>${url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async" onerror="this.remove()">` : ''}</span>`;
-const nm = (c) => `<span class="cn">${esc(c.title)}${c.is_official ? verifiedBadge(14) : ''}</span>`;
+const nm = (c) => `<span class="cn">${esc(c.title)}${c.is_official ? badgeHtml('official', 14, true) : ''}</span>`;
 const isNew = (c) => c.created_at && Date.now() - new Date(c.created_at) < 86400000;
 
 /* ---------------- daftar di tab Pembaruan ---------------- */
@@ -174,7 +174,7 @@ async function openProfile(id, ctx = {}) {
     v.innerHTML = `<div class="chp-card"><div class="chp-cover" style="--h:${hue(p.title)}"><button type="button" class="ibtn glass" data-x aria-label="Tutup">${icon('back')}</button>${fol ? `<button type="button" class="ibtn glass" data-a="share" aria-label="Bagikan">${icon('share')}</button>` : ''}</div>
     <div class="chp-main">
       <div class="chp-id"><div class="chp-av"><span class="avw">${chAv(p.title, 96, p.avatar_url)}${own ? `<button type="button" class="avcam" data-a="photo" aria-label="Ubah foto saluran">${icon('camera', 18)}</button>` : ''}</span></div>
-        <h2 class="chp-name">${esc(p.title)}${p.is_official ? verifiedBadge(20) : ''}</h2>
+        <h2 class="chp-name">${esc(p.title)}${p.is_official ? badgeHtml('official', 20, true) : ''}</h2>
         <p class="chp-sub">Saluran · ${num(p.followers)} pengikut</p>
         <div class="chp-pills">${p.is_public == null ? '' : p.is_public ? pill(icon('globe', 14) + ' Publik') : pill(icon('lock', 14) + ' Privat')}${p.is_official ? pill('Resmi', 'ok') : ''}${own ? pill('Kamu pemilik', 'pri') : fol ? pill(icon('check', 14) + ' Mengikuti', 'pri') : ''}</div>
         ${fol ? `<div class="chp-actions">${act('open', 'megaphone', 'Buka', 'pri')}${act('share', 'share', 'Bagikan')}${own ? act('edit', 'edit', 'Ubah') : ''}</div>` : ''}
