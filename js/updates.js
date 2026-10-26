@@ -9,6 +9,7 @@ const body = $('#body');
 const VIS = { friends: ['Teman', 'users'], public: ['Semua', 'globe'], only_me: ['Hanya saya', 'lock'] };
 const DUR = 5000, MAX_IMG = 5 * 1048576, MAX_VID = 25 * 1048576, MAX_SEC = 30, FK = 'orvix:feed:' + me.id;
 const VEXT = { 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov' }, IEXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+let extras = new Map();   // id story -> { allow_repost, repost_of, orig_name, orig_username, orig_verified, reposted_by_me }
 let feed = [], viewed = new Set(), live = false, viewerOpen = false, viewHook = null, seq = 0, cleaned = false;
 const urls = new Map();   // path -> { url, at }
 const kindOf = (s) => s.media_type || (s.media_path ? 'image' : null);
@@ -41,8 +42,10 @@ async function fetchFeed() {
   if (error) throw error;
   if (my !== seq) return;
   feed = data; viewed = new Set(data.filter((s) => s.viewed).map((s) => s.id));
+  try { const { data: ex } = await sb.rpc('orvix_story_extras', { ids: data.map((s) => s.id) }); extras = new Map((ex || []).map((x) => [x.id, x])); } catch { /* fitur repost opsional */ }
   save(); if (!viewerOpen) draw();
   if (await sign(cardPaths(data))) { save(); if (!viewerOpen) draw(); }
+  openDeep();
   if (!cleaned) { cleaned = true; cleanupFiles().catch(() => {}); }
 }
 const refresh = debounce(() => fetchFeed().catch(() => {}), 250);
@@ -56,6 +59,12 @@ async function cleanupFiles() {
   if (old.length) await sb.storage.from('stories').remove(old);
 }
 
+let deepDone = false;
+function openDeep() {   // tautan dari chat: /updates?story=ID (hanya jika story masih tersedia)
+  const id = new URLSearchParams(location.search).get('story'); if (!id || deepDone || viewerOpen) return; deepDone = true; history.replaceState(null, '', '/updates');
+  const s = feed.find((x) => x.id === id); if (!s) return toast('Story sudah tidak tersedia', 'error');
+  const g = groups().find((x) => x.uid === s.user_id); if (g?.items.length) { openViewer(g, g.items.findIndex((x) => x.id === id)); }
+}
 function groups() {
   const by = new Map(); feed.forEach((s) => { if (!by.has(s.user_id)) by.set(s.user_id, []); by.get(s.user_id).push(s); });
   const unseen = (g) => (g.items.some((s) => !viewed.has(s.id)) ? 1 : 0), last = (g) => new Date(g.items[g.items.length - 1].created_at);
@@ -101,10 +110,10 @@ body.onclick = (e) => {
 /* ---------- penampil story ---------- */
 const fs = (t) => (t.length <= 40 ? 32 : t.length <= 90 ? 26 : t.length <= 180 ? 22 : 18);
 let muted = false;
-function openViewer(g) {
+function openViewer(g, startAt = -1) {
   viewerOpen = true;
   const items = g.items.slice(), mine = g.uid === me.id, p = g.p;
-  let i = Math.max(0, items.findIndex((s) => !viewed.has(s.id))), timer = 0, started = 0, left = DUR, paused = false, closed = false, modalOpen = false, holdAt = 0, viewsModal = null, rows = [];
+  let i = startAt >= 0 ? startAt : Math.max(0, items.findIndex((s) => !viewed.has(s.id))), timer = 0, started = 0, left = DUR, paused = false, closed = false, modalOpen = false, holdAt = 0, viewsModal = null, rows = [];
   const v = document.createElement('div'); v.className = 'viewer'; v.setAttribute('role', 'dialog'); v.setAttribute('aria-modal', 'true'); v.setAttribute('aria-label', 'Story');
   document.body.append(v); document.body.classList.add('noscroll');
   const media = () => $('video', v);
@@ -127,15 +136,16 @@ function openViewer(g) {
     if (viewsModal) viewsModal(rows);
   }
   function show() {
-    const s = items[i], k = kindOf(s), src = urlOf(s.media_path), poster = urlOf(s.thumb_path);
+    const s = items[i], k = kindOf(s), src = urlOf(s.media_path), poster = urlOf(s.thumb_path), ex = extras.get(s.id);
     const dur = k === 'video' ? Math.min(MAX_SEC * 1000, Math.max(1000, s.duration_ms || 15000)) : DUR; left = dur;
     v.className = 'viewer';
     const bg = k === 'video' ? poster : src;
     v.innerHTML = `<div class="stage ${s.media_path ? 'img' : 'sbg' + s.bg_index}">${bg ? `<div class="vblur" style="background-image:url('${esc(bg)}')"></div>` : ''}${k === 'image' && src ? `<img src="${esc(src)}" alt="Gambar story">` : ''}${k === 'video' && src ? `<video class="vvid" src="${esc(src)}" ${poster ? `poster="${esc(poster)}"` : ''} playsinline preload="auto"></video>` : ''}${s.media_path && !src ? '<span class="spin big"></span>' : ''}<div class="vshade"></div>
       <div class="bars">${items.map((_, n) => `<i><b class="${n < i ? 'full' : n === i ? 'run' : ''}" ${n === i ? `style="animation-duration:${dur}ms"` : ''}></b></i>`).join('')}</div>
-      <div class="vtop">${avatar(p.display_name, p.avatar_url, 38)}<span class="grow">${nameWithBadge(p.display_name, p.is_verified)}<br><span class="dim">${relTime(s.created_at)}</span></span>${k === 'video' ? `<button class="ibtn" data-mute aria-label="Suara">${icon(muted ? 'mute' : 'vol')}</button>` : ''}<button class="ibtn" data-close aria-label="Tutup">${icon('x')}</button></div>
+      <div class="vtop">${avatar(p.display_name, p.avatar_url, 38)}<span class="grow">${nameWithBadge(p.display_name, p.is_verified)}<br><span class="dim">${relTime(s.created_at)}</span>${ex?.repost_of ? `<span class="rp-tag">${icon('repost', 12)} Repost dari ${esc(ex.orig_name || 'pengguna')}${ex.orig_username ? ' (@' + esc(ex.orig_username) + ')' : ''}</span>` : ''}</span>${k === 'video' ? `<button class="ibtn" data-mute aria-label="Suara">${icon(muted ? 'mute' : 'vol')}</button>` : ''}<button class="ibtn" data-close aria-label="Tutup">${icon('x')}</button></div>
       ${s.content ? `<div class="cap ${s.media_path ? 'on-img' : ''}" style="${s.media_path ? '' : 'font-size:' + fs(s.content) + 'px'}">${esc(s.content)}</div>` : ''}
       <button class="vtap l" data-p aria-label="Sebelumnya"></button><button class="vtap r" data-n aria-label="Berikutnya"></button>
+      ${!mine ? `<form class="vreply" id="vrf" autocomplete="off"><input class="inp" id="vri" maxlength="1000" placeholder="Balas story…" aria-label="Balas story ${esc(p.display_name)}">${ex?.allow_repost && !ex.reposted_by_me ? `<button type="button" class="ibtn glass" data-repost aria-label="Repost story">${icon('repost', 20)}</button>` : ''}<button class="send" id="vrs" aria-label="Kirim balasan" disabled>${icon('send', 18)}</button></form>` : ''}
       ${mine ? `<div class="vfoot"><button class="btn sm glass" data-views>${icon('eye', 16)} <span id="vc">…</span></button><button class="btn sm glass danger" data-del>${icon('trash', 16)} Hapus</button></div>` : ''}</div>`;
     const stage = $('.stage', v); let y0 = null, dy = 0;
     stage.onpointerdown = (e) => { holdAt = performance.now(); y0 = e.clientY; dy = 0; pause(); };
@@ -149,6 +159,28 @@ function openViewer(g) {
     if (s.media_path && !src && !s._t) { s._t = 1; sign([s.media_path, s.thumb_path]).then(() => { if (!closed && items[i] === s) show(); }).catch(() => {}); return; }
     play();
     if (!mine && !viewed.has(s.id)) { viewed.add(s.id); save(); sb.from('story_views').upsert({ story_id: s.id, viewer_id: me.id }, { onConflict: 'story_id,viewer_id', ignoreDuplicates: true }).then(() => {}, () => {}); }
+    if (!mine) {
+      const vri = $('#vri', v), vrs = $('#vrs', v);
+      vri.onfocus = () => { pause(); modalOpen = true; }; vri.onblur = () => { if (!vri.value.trim()) { modalOpen = false; play(); } };
+      vri.oninput = () => { vrs.disabled = !vri.value.trim(); };
+      $('#vrf', v).onsubmit = async (e) => {
+        e.preventDefault(); const t = vri.value.trim(); if (!t) return; vrs.disabled = true; vri.disabled = true;
+        const { error } = await sb.rpc('orvix_reply_story', { p_story: s.id, p_text: t });
+        vri.disabled = false; if (error) { vrs.disabled = false; return toast(errMsg(error), 'error'); }
+        vri.value = ''; vri.blur(); modalOpen = false; toast('Balasan terkirim ke chat', 'success'); play();
+      };
+      const rb = $('[data-repost]', v);
+      if (rb) rb.onclick = async () => {
+        pause(); modalOpen = true;
+        const m3 = openModal({ title: 'Repost story', sheet: true, html: `<p class="muted" style="margin-bottom:10px">Story ini akan tampil di akunmu dengan atribusi ke <b>${esc(p.display_name)}</b> dan hilang saat story aslinya hilang. Pilih siapa yang bisa melihat repostmu.</p><div class="col">${Object.entries(VIS).map(([k, [l]]) => `<button class="btn" data-rv="${k}">${l}</button>`).join('')}</div>`, onClose: () => { modalOpen = false; play(); } });
+        m3.el.onclick = async (e) => {
+          const b = e.target.closest('[data-rv]'); if (!b) return; setBusy(b, true);
+          const { error } = await sb.rpc('orvix_repost_story', { p_story: s.id, p_visibility: b.dataset.rv });
+          if (error) { setBusy(b, false); return toast(errMsg(error), 'error'); }
+          const x = extras.get(s.id); if (x) x.reposted_by_me = true; rb.remove(); m3.close(); toast('Story direpost', 'success'); fetchFeed().catch(() => {});
+        };
+      };
+    }
     if (mine) {
       loadViews(s); viewHook = (r) => { if (r.story_id === items[i]?.id) loadViews(items[i]); };
       $('[data-views]', v).onclick = () => {
@@ -219,6 +251,7 @@ function addStory() {
     <div class="tarea"><textarea class="inp" id="sc" maxlength="500" placeholder="Tulis sesuatu untuk story…" aria-label="Teks story"></textarea><span class="cnt" id="cnt">0/500</span></div>
     <p class="hint" style="margin:10px 2px 6px">Siapa yang bisa melihat</p>
     <div class="vis" role="radiogroup" aria-label="Siapa yang bisa melihat">${Object.entries(VIS).map(([k, [l, ic]]) => `<button type="button" role="radio" data-v="${k}" aria-checked="${k === vis}">${icon(ic, 20)}<span>${l}</span></button>`).join('')}</div>
+    <label class="rpt" id="rptw"><input type="checkbox" id="rpt"><span><b>Izinkan repost</b><small>Hanya untuk story “Semua”. Pengguna lain dapat membagikannya ulang dengan atribusi ke kamu.</small></span></label>
     <div class="upl hide" id="upl"><div class="upl-bar"><i id="upb"></i></div><span id="upt">Mengunggah…</span></div>
     <p class="err" id="er" role="alert"></p><button class="btn primary block" id="go" disabled>Bagikan story</button></div>`,
   onClose: () => { if (imgUrl) URL.revokeObjectURL(imgUrl); if (vid) URL.revokeObjectURL(vid.url); } });
@@ -244,7 +277,9 @@ function addStory() {
     $$('[data-m]', el).forEach((x) => x.setAttribute('aria-selected', x === b)); sync();
   });
   $$('[data-bg]', el).forEach((b) => b.onclick = () => { bg = +b.dataset.bg; $$('[data-bg]', el).forEach((x) => x.setAttribute('aria-pressed', x === b)); sync(); });
-  $$('[data-v]', el).forEach((b) => b.onclick = () => { vis = b.dataset.v; $$('[data-v]', el).forEach((x) => x.setAttribute('aria-checked', x === b)); });
+  const syncRpt = () => { const w = $('#rptw', el), c = $('#rpt', el); w.classList.toggle('off', vis !== 'public'); c.disabled = vis !== 'public'; if (vis !== 'public') c.checked = false; };
+  $$('[data-v]', el).forEach((b) => b.onclick = () => { vis = b.dataset.v; $$('[data-v]', el).forEach((x) => x.setAttribute('aria-checked', x === b)); syncRpt(); });
+  syncRpt();
   $('#rm', el).onclick = () => {
     if (mode === 'image') { img = null; if (imgUrl) URL.revokeObjectURL(imgUrl); imgUrl = null; pvi.removeAttribute('src'); }
     if (mode === 'video') { if (vid) URL.revokeObjectURL(vid.url); vid = null; pvv.removeAttribute('src'); pvv.load(); }
@@ -270,7 +305,7 @@ function addStory() {
   go.onclick = async () => {
     const txt = sc.value.trim(); er.textContent = ''; if (go.disabled) return;
     busy = true; setBusy(go, true, mode === 'text' ? 'Membagikan…' : 'Mengunggah…'); $('#upl', el).classList.toggle('hide', mode === 'text'); progress(0, 'Mengunggah'); sync(); go.disabled = true;
-    const files = []; let row = { user_id: me.id, content: txt || null, media_path: null, bg_index: mode === 'text' ? bg : 0, visibility: vis };
+    const files = []; let row = { user_id: me.id, content: txt || null, media_path: null, bg_index: mode === 'text' ? bg : 0, visibility: vis, allow_repost: vis === 'public' && $('#rpt', el).checked };
     try {
       if (mode === 'image') {
         const path = `${me.id}/${crypto.randomUUID()}.${extOf(img.type)}`; files.push(path);
