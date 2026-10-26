@@ -68,3 +68,23 @@ Jalankan berurutan di SQL Editor, satu file per Run (semua idempotent, tidak men
 - **Crop gambar**: memilih foto profil atau banner otomatis membuka editor crop (`js/cropper.js`): geser, cubit/roda mouse/slider untuk zoom. Gambar sumber boleh sampai 25 MB; hasil crop dikompres otomatis (WebP, 1500×500 untuk banner dan 512×512 untuk foto) agar muat di batas 2 MB bucket.
 - Bila SQL 12h belum dijalankan, aplikasi tetap berjalan normal; hanya fitur banner yang menampilkan pesan untuk menjalankan SQL tersebut.
 - Catatan: `supabase.sql` di repo ini berhenti di bagian 10. Fungsi `admin_api`, `delete_my_account`, dan `story_feed` yang dipakai aplikasi berasal dari SQL lain (mis. `perbaikan-bagian-13.sql`) yang tidak ikut di zip; update ini tidak menimpanya.
+
+## Sistem badge (sql-parts/12i-badge.sql)
+Jalankan `12i-badge.sql` di SQL Editor setelah `12f`. Lalu deploy ulang Edge Function `admin-users`.
+- Admin utama (bisa kelola Official): `update public.profiles set is_super_admin = true where username = 'USERNAME_ADMIN';`
+- Premium hanya bisa diubah backend tepercaya (service_role): `select public.orvix_set_premium('<user_id>', '2026-12-31T00:00:00Z');` (null / masa lalu = nonaktif)
+
+
+## 11. Update 13: blokir, hapus pesan, kontak, premium (sql-parts 13a–13d)
+Jalankan berurutan, satu file per Run (idempotent): `13a-blokir.sql` → `13b-hapus-pesan-chat.sql` → `13c-kontak.sql` → `13d-premium.sql`
+(`update-kontak-blokir-premium.sql` = gabungan keempatnya, untuk editor desktop). Lalu deploy ulang frontend dan tutup tab lama.
+
+- **Blokir**: 13a memasang ulang izin eksekusi, membuat `orvix_list_blocked()`, dan memvalidasi sesi. Di chat, composer berganti bar "Buka blokir".
+- **Hapus pesan**: hanya dalam 1 jam (dijaga trigger `messages_guard`). Pesan berubah jadi "Pesan ini telah dihapus". Edit: 15 menit (Premium 1 jam).
+- **Chat**: tekan lama item chat untuk memilih beberapa, lalu sematkan (maks. 3, Premium 10) atau hapus dari daftar (hanya untukmu).
+- **Kontak**: tombol (+) → Kontak. Berisi "Pernah dihubungi" dan "Pernah dicari" (ID ORVIX yang dicari tersimpan otomatis).
+- **Premium**: Pusat Premium (ikon mahkota di Chat, atau Profil). Gaya bubble, aksen warna, aura profil, insight chat 30 hari, ekspor chat, sematan 10 chat.
+
+## 11. Responsif dan pilih pesan (tekan lama)
+- `css/responsive.css` dimuat terakhir di semua halaman: layout chat tidak lagi melebar mengikuti teks header (grid `minmax(0,1fr)`), ukuran teks fluid (`html{font-size:clamp(...)}`, semua `font-size` kini `rem`), input 16px agar iOS tidak zoom.
+- Di dalam chat, tekan lama sebuah pesan untuk memilihnya (seperti memilih chat di daftar). Ketuk pesan lain untuk menambah/melepas. Bar atas menampilkan Salin, Edit (1 pesan milikmu, dalam batas edit), Laporkan (1 pesan orang lain), dan Hapus. Hapus untuk semua hanya untuk pesanmu sendiri dalam 1 jam (batas dari `sql-parts/13b-hapus-pesan-chat.sql`, jalankan jika belum). Tombol Kembali/Esc membatalkan pilihan. Ketuk biasa pada pesan tetap membuka menu lama.
