@@ -1,7 +1,8 @@
 // Profil, pengaturan privasi, keamanan, blokir, hapus akun.
 import { sb, requireAuth, cacheMe, logout, fetchProfiles, purgeAvatarFiles, purgeBannerFiles, purgeUserFiles, errMsg } from './supabase.js';
 import { cropImage } from './cropper.js';
-import { $, esc, icon, avatar, nameWithBadge, toast, setBusy, openModal, confirmDialog, copyText, validateImage, extOf, mountShell, THEMES, applyTheme, currentTheme, relTime } from './utils.js';
+import { openPremiumHub } from './premium.js';
+import { $, esc, icon, avatar, nameWithBadge, toast, setBusy, openModal, confirmDialog, copyText, validateImage, extOf, mountShell, THEMES, applyTheme, currentTheme, relTime, wallpaperModal, isPremium } from './utils.js';
 
 const { profile: me } = await requireAuth({ shell: '/profile' });
 mountShell('/profile', me.role === 'admin');
@@ -27,7 +28,7 @@ function render() {
   <div class="pcard"><div class="cover ${me.banner_url ? 'has' : ''}" id="cover">${me.banner_url ? `<img class="cover-img" src="${esc(me.banner_url)}" alt="Banner profil" decoding="async" onload="this.classList.add('in')" onerror="this.remove()">` : ''}<span class="cover-fx" aria-hidden="true"></span>
      ${me.banner_url ? `<div class="cover-act"><button class="ibtn" id="camB" aria-label="Ganti banner">${icon('image', 20)}</button><button class="ibtn" id="delB" aria-label="Hapus banner">${icon('trash', 20)}</button></div>` : `<button class="cover-add" id="camB">${icon('image', 18)}<span>Tambah banner</span></button>`}</div>
    <span class="avw pav">${avatar(me.display_name, me.avatar_url, 96)}<button class="avcam" id="cam" aria-label="Ganti foto profil">${icon('camera', 18)}</button></span>
-   <h2 style="margin-top:10px;font-size:22px">${nameWithBadge(me.display_name, me.is_verified, 22, true)} <button class="ibtn" id="editP" aria-label="Edit profil" style="display:inline-grid;vertical-align:middle">${icon('edit', 18)}</button></h2>
+   <h2 style="margin-top:10px;font-size:22px">${nameWithBadge(me.display_name, me.is_verified, 22, true, me.id)} <button class="ibtn" id="editP" aria-label="Edit profil" style="display:inline-grid;vertical-align:middle">${icon('edit', 18)}</button></h2>
    <p class="dim">@${esc(me.username)}</p>
    <p class="pid" style="margin-top:6px"><span>ID ${esc(me.orvix_id)}</span><button class="ibtn" id="cpId" aria-label="Salin ID ORVIX" style="width:32px;height:32px">${icon('copy', 16)}</button></p>
    <p class="sec" style="margin:12px 0 0">Info</p><p style="margin:2px 16px">${esc(me.status_text || 'Belum ada info')}</p><p class="dim">Bergabung ${joined}</p>
@@ -41,8 +42,10 @@ function render() {
   <div class="themes" role="radiogroup" aria-label="Tema aplikasi">${Object.entries(THEMES).map(([k, [n, d]]) => `<button class="tcard th-${k}" role="radio" aria-checked="${currentTheme() === k}" data-th="${k}">
     <span class="tphone" aria-hidden="true"><span class="tbar"><i class="tav"></i><i class="tl"></i><i class="tl s"></i></span><span class="tbody"><span class="tb in"></span><span class="tb out"></span><span class="tb in s"></span><span class="tb out s"></span></span><span class="tin"><i></i><b></b></span></span>
     <span class="tmeta"><span class="tname"><b>${n}</b><span class="tchk" aria-hidden="true">${icon('check', 14)}</span></span><small>${d}</small><span class="tdots" aria-hidden="true"><i></i><i></i><i></i><i></i></span></span></button>`).join('')}</div>
+  <button class="setrow" id="rowWp">${icon('image', 24)}<span class="grow"><b>Wallpaper chat</b><small>Pilih latar chat dan atur kepudarannya (0-100).</small></span>${icon('chev', 18)}</button>
   <p class="sec">Akun</p>
-  ${me.is_verified ? `<div class="setrow">${icon('badge', 24)}<span class="grow"><b>Akun terverifikasi</b><small>Lencana terverifikasi aktif di profil, chat, dan story</small></span></div>` : `<button class="setrow" id="rowVerif">${icon('badge', 24)}<span class="grow"><b>Ajukan verifikasi kreator/bisnis</b><small>Dapatkan lencana jika memenuhi kriteria ORVIX</small></span>${icon('chev', 18)}</button>`}
+  <button class="setrow" id="rowPrem">${icon('badge', 24)}<span class="grow"><b>ORVIX Premium</b><small>${isPremium(me) ? 'Aktif sampai ' + new Intl.DateTimeFormat('id-ID', { dateStyle: 'long' }).format(new Date(me.premium_until)) + '. Atur gaya Premium-mu.' : 'Gaya bubble, aura profil, insight chat, dan lainnya.'}</small></span>${icon('chev', 18)}</button>
+  <button class="setrow" id="rowVerif">${icon('badge', 24)}<span class="grow"><b>Ajukan badge</b><small>Verified, Creator, atau Business. Dinilai oleh tim ORVIX.</small></span>${icon('chev', 18)}</button>
   <button class="setrow" id="rowPhoto">${icon('camera', 24)}<span class="grow"><b>Ganti foto profil</b></span>${icon('chev', 18)}</button>
   <button class="setrow" id="rowDelPhoto">${icon('trash', 24)}<span class="grow"><b>Hapus foto profil</b></span>${icon('chev', 18)}</button>
   <button class="setrow" id="rowBanner">${icon('image', 24)}<span class="grow"><b>${me.banner_url ? 'Ganti banner profil' : 'Tambah banner profil'}</b><small>Gambar panjang di atas profilmu. Kamu bisa memotongnya sendiri.</small></span>${icon('chev', 18)}</button>
@@ -97,6 +100,8 @@ function wire() {
     const m = openModal({ title: 'Visibilitas story', sheet: true, html: `<div class="col">${Object.entries(VIS).map(([k, v]) => `<button class="btn ${k === me.story_visibility ? 'primary' : ''}" data-v="${k}">${v}</button>`).join('')}</div>` });
     m.el.onclick = guard(async (e) => { const v = e.target.closest('[data-v]')?.dataset.v; if (!v) return; await upd({ story_visibility: v }); m.close(); render(); });
   };
+  $('#rowWp').onclick = () => wallpaperModal();
+  $('#rowPrem').onclick = () => openPremiumHub(me, () => { cacheMe(me); render(); });
   $('#rowMsg').onclick = msgPermModal; $('#rowVerif') && ($('#rowVerif').onclick = verifModal);
   document.querySelectorAll('[data-th]').forEach((b) => b.onclick = guard(async () => {
     const k = b.dataset.th, r = b.getBoundingClientRect(); applyTheme(k, { x: r.left + r.width / 2, y: r.top + r.height / 2 }); render();   // langsung terpasang; sinkron ke akun di latar belakang
@@ -153,21 +158,24 @@ function msgPermModal() {
 }
 
 const V_CAT = { konten: 'Kreator konten', seni_musik: 'Seniman / musisi', jurnalis_penulis: 'Jurnalis / penulis', toko_bisnis: 'Toko / bisnis', merek: 'Merek (brand)', organisasi: 'Organisasi / komunitas', lainnya: 'Lainnya' };
+const V_KIND = { verified: 'Verified', creator: 'Creator', business: 'Business' };
+const V_REQ = { verified: 'Siapkan bukti identitas atau akun resmi (KTP/dokumen identitas boleh disamarkan sebagian, atau tautan akun publik yang aktif). Tim ORVIX memeriksa bahwa kamu orang atau organisasi yang asli.', creator: 'Siapkan tautan karya/kanal dan bukti aktivitas konten yang konsisten. Creator tidak otomatis berarti identitasmu terverifikasi.', business: 'Siapkan bukti usaha: izin/NIB, nota atau foto usaha, dan tautan toko/situs. Business tidak otomatis memberi Verified.' };
 const V_ST = { pending: 'Menunggu peninjauan', approved: 'Disetujui', rejected: 'Ditolak', need_info: 'Perlu informasi tambahan', revoked: 'Dicabut', superseded: 'Diganti pengajuan baru' };
 async function verifModal() {
-  const m = openModal({ title: 'Verifikasi kreator/bisnis', wide: true, html: '<p class="dim">Memuat…</p>' });
+  const m = openModal({ title: 'Ajukan badge', wide: true, html: '<p class="dim">Memuat…</p>' });
   let rows = []; try { const { data, error } = await sb.from('verification_requests').select('id,kind,category,status,reject_reason,created_at,reviewed_at').order('created_at', { ascending: false }).limit(5); if (error) throw error; rows = data || []; } catch (x) { m.el.innerHTML = `<p class="err">${esc(errMsg(x))}</p>`; return; }
-  const last = rows[0], hist = rows.length ? `<p class="sec" style="margin:16px 0 6px">Riwayat</p><div class="col" style="gap:6px">${rows.map((r) => `<div class="card sm"><b>${r.kind === 'business' ? 'Bisnis' : 'Kreator'} · ${V_CAT[r.category] || r.category}</b> <span class="pill ${r.status === 'rejected' || r.status === 'revoked' ? 'bad' : r.status === 'approved' ? 'good' : ''}">${V_ST[r.status]}</span><br><span class="dim">${relTime(r.created_at)}</span>${r.reject_reason && ['rejected', 'need_info'].includes(r.status) ? `<p class="muted" style="margin-top:4px">Catatan admin: ${esc(r.reject_reason)}</p>` : ''}</div>`).join('')}</div>` : '';
+  const last = rows[0], hist = rows.length ? `<p class="sec" style="margin:16px 0 6px">Riwayat</p><div class="col" style="gap:6px">${rows.map((r) => `<div class="card sm"><b>${V_KIND[r.kind] || r.kind} · ${V_CAT[r.category] || r.category}</b> <span class="pill ${r.status === 'rejected' || r.status === 'revoked' ? 'bad' : r.status === 'approved' ? 'good' : ''}">${V_ST[r.status]}</span><br><span class="dim">${relTime(r.created_at)}</span>${r.reject_reason && ['rejected', 'need_info'].includes(r.status) ? `<p class="muted" style="margin-top:4px">Catatan admin: ${esc(r.reject_reason)}</p>` : ''}</div>`).join('')}</div>` : '';
   if (last?.status === 'pending') { m.el.innerHTML = `<div class="alert info">Pengajuanmu sedang ditinjau tim ORVIX. Kami akan memberi tahu kamu saat ada keputusan.</div>${hist}`; return; }
   const cool = last?.status === 'rejected' && last.reviewed_at && Date.now() - new Date(last.reviewed_at) < 30 * 864e5;
   if (cool) { m.el.innerHTML = `<div class="alert warn">Pengajuan terakhir ditolak. Kamu bisa mengajukan lagi 30 hari setelah keputusan.</div>${hist}`; return; }
   m.el.innerHTML = `<p class="muted" style="margin-bottom:12px">Lencana diberikan kepada kreator dan bisnis yang asli dan aktif. Bukti yang kamu unggah disimpan privat dan hanya dilihat admin berwenang.</p>${last?.status === 'need_info' ? `<div class="alert warn" style="margin-bottom:12px">Admin meminta informasi tambahan: ${esc(last.reject_reason || '')}. Kirim ulang pengajuan dengan data yang diminta.</div>` : ''}
-  <form id="vf" novalidate><div class="field"><label for="vk">Jenis akun</label><select class="inp" id="vk"><option value="creator">Kreator</option><option value="business">Bisnis</option></select></div>
+  <form id="vf" novalidate><div class="field"><label for="vk">Jenis akun</label><select class="inp" id="vk"><option value="verified">Verified (identitas)</option><option value="creator">Creator</option><option value="business">Business</option></select><p class="hint" id="vreq" style="margin-top:6px"></p></div>
   <div class="field"><label for="vc">Kategori</label><select class="inp" id="vc">${Object.entries(V_CAT).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
   <div class="field"><label for="vd">Tentang kamu / usahamu (20–1000 karakter)</label><textarea class="inp" id="vd" maxlength="1000" style="min-height:90px"></textarea></div>
   <div class="field"><label>Tautan pendukung (opsional, maks. 3)</label><input class="inp vl" placeholder="https://" inputmode="url"><input class="inp vl" placeholder="https://" inputmode="url" style="margin-top:6px"><input class="inp vl" placeholder="https://" inputmode="url" style="margin-top:6px"></div>
   <div class="field"><label for="ve">Bukti pendukung (1–5 berkas: JPG, PNG, WebP, atau PDF, maks. 5 MB)</label><input class="inp" id="ve" type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf"></div>
   <p class="err" id="er" role="alert"></p><button class="btn primary block" id="vs">Kirim pengajuan</button></form>${hist}`;
+  const vq = () => { $('#vreq', m.el).textContent = V_REQ[$('#vk', m.el).value]; }; $('#vk', m.el).onchange = vq; vq();
   $('#vf', m.el).onsubmit = async (e) => {
     e.preventDefault(); const er = $('#er', m.el), btn = $('#vs', m.el); er.textContent = '';
     const desc = $('#vd', m.el).value.trim(), files = [...$('#ve', m.el).files], links = [...m.el.querySelectorAll('.vl')].map((x) => x.value.trim()).filter(Boolean);
@@ -197,13 +205,15 @@ function passwordModal() {
 
 async function blockedModal() {
   const m = openModal({ title: 'Pengguna diblokir', html: '<div id="bl" class="col"><p class="dim">Memuat…</p></div>' });
+  const fail = (x) => /could not find the function|does not exist|permission denied|schema cache/i.test(errMsg(x)) ? 'Fitur blokir belum aktif di database. Jalankan sql-parts/13a-blokir.sql di SQL Editor Supabase, lalu muat ulang.' : errMsg(x);
   const draw = async () => {
-    const { data, error } = await sb.from('blocked_users').select('blocked_id,created_at').order('created_at', { ascending: false }); if (error) throw error;
-    const pm = await fetchProfiles(data.map((d) => d.blocked_id));
-    $('#bl', m.el).innerHTML = data.length ? data.map((d) => { const p = pm.get(d.blocked_id) || { display_name: 'Pengguna', username: '' }; return `<div class="row gap">${avatar(p.display_name, p.avatar_url, 40)}<span class="grow">${nameWithBadge(p.display_name, p.is_verified)}<br><span class="dim">${p.username ? '@' + esc(p.username) : ''}</span></span><button class="btn sm" data-u="${d.blocked_id}">Buka blokir</button></div>`; }).join('') : '<div class="empty" style="padding:24px"><p>Tidak ada pengguna diblokir.</p></div>';
+    let r = await sb.rpc('orvix_list_blocked'), rows;
+    if (!r.error) rows = r.data.map((d) => ({ id: d.user_id, display_name: d.display_name, username: d.username, avatar_url: d.avatar_url, is_verified: d.is_verified }));
+    else { const q = await sb.from('blocked_users').select('blocked_id,created_at').order('created_at', { ascending: false }); if (q.error) throw q.error; const pm = await fetchProfiles(q.data.map((d) => d.blocked_id)); rows = q.data.map((d) => ({ id: d.blocked_id, ...(pm.get(d.blocked_id) || { display_name: 'Pengguna', username: '' }) })); }
+    $('#bl', m.el).innerHTML = rows.length ? rows.map((p) => `<div class="row gap">${avatar(p.display_name, p.avatar_url, 40)}<span class="grow">${nameWithBadge(p.display_name, p.is_verified)}<br><span class="dim">${p.username ? '@' + esc(p.username) : ''}</span></span><button class="btn sm" data-u="${p.id}">Buka blokir</button></div>`).join('') : '<div class="empty" style="padding:24px"><p>Tidak ada pengguna diblokir.</p></div>';
   };
-  m.el.onclick = async (e) => { const b = e.target.closest('[data-u]'); if (!b) return; setBusy(b, true); const { error } = await sb.rpc('unblock_user', { target: b.dataset.u }); if (error) { setBusy(b, false); return toast(errMsg(error), 'error'); } toast('Blokir dibuka', 'success'); draw(); };
-  draw().catch((x) => { $('#bl', m.el).innerHTML = `<p class="err">${esc(errMsg(x))}</p>`; });
+  m.el.onclick = async (e) => { const b = e.target.closest('[data-u]'); if (!b) return; setBusy(b, true); const { error } = await sb.rpc('unblock_user', { target: b.dataset.u }); if (error) { setBusy(b, false); return toast(fail(error), 'error'); } toast('Blokir dibuka', 'success'); draw().catch(() => {}); };
+  draw().catch((x) => { $('#bl', m.el).innerHTML = `<p class="err">${esc(fail(x))}</p>`; });
 }
 
 function deleteModal() {
