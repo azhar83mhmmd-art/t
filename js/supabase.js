@@ -63,10 +63,14 @@ function startPresence() {
 
 export async function logout() { cacheMe(null); cleanupAll(); await sb.auth.signOut(); location.replace('/'); }
 
+// banner_url baru ada setelah sql-parts/12h dijalankan; bila kolom belum ada, query otomatis jatuh kembali tanpa banner.
+let bannerCol = true;
 export async function fetchProfiles(ids) {
   ids = [...new Set(ids)].filter(Boolean); if (!ids.length) return new Map();
-  const { data, error } = await sb.from('profiles').select('id,orvix_id,username,display_name,avatar_url,is_verified,status_text').in('id', ids);
-  if (error) throw error; return new Map(data.map((p) => [p.id, p]));
+  const base = 'id,orvix_id,username,display_name,avatar_url,is_verified,status_text';
+  let r = await sb.from('profiles').select(bannerCol ? base + ',banner_url' : base).in('id', ids);
+  if (r.error && bannerCol && /banner_url/i.test(r.error.message || '')) { bannerCol = false; r = await sb.from('profiles').select(base).in('id', ids); }
+  if (r.error) throw r.error; return new Map(r.data.map((p) => [p.id, p]));
 }
 
 // Daftar hubungan pertemanan milik saya + profil lawan
@@ -111,9 +115,14 @@ export async function uploadWithProgress(bucket, path, blob, onProgress) {
   });
 }
 
-export async function purgeAvatarFiles(uid) {
+// Hapus berkas foto profil (avatar-*) milik uid. Banner (banner-*) dan folder lain tidak ikut terhapus.
+export async function purgeAvatarFiles(uid) { return purgeByPrefix(uid, 'avatar-'); }
+// Hapus berkas banner (banner-*) milik uid; keepPath = path yang dipertahankan (banner terbaru).
+export async function purgeBannerFiles(uid, keepPath = null) { return purgeByPrefix(uid, 'banner-', keepPath); }
+async function purgeByPrefix(uid, prefix, keepPath = null) {
   const { data } = await sb.storage.from('avatars').list(uid, { limit: 100 });
-  if (data?.length) await sb.storage.from('avatars').remove(data.map((f) => `${uid}/${f.name}`));
+  const old = (data || []).filter((f) => f.name.startsWith(prefix) && `${uid}/${f.name}` !== keepPath).map((f) => `${uid}/${f.name}`);
+  if (old.length) await sb.storage.from('avatars').remove(old);
 }
 
 // Ambil pesan error dari respons Edge Function
