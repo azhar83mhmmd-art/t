@@ -53,3 +53,15 @@ supabase functions deploy register --no-verify-jwt
 5. Admin pertama ditetapkan lewat SQL: `update public.profiles set role = 'admin' where username = 'usernamemu';`
 
 6. Saluran: jalankan berurutan file di `sql-parts/` (01 sampai 10), satu file per Run, supaya editor SQL di HP tidak crash. Saluran rekomendasi sepenuhnya buatan pengguna (tanpa saluran resmi bawaan). Setelah deploy ulang frontend, tutup tab lalu buka lagi agar JS lama tidak tersangkut cache.
+
+## 10. Update fitur (bagian 12a–12g)
+Jalankan berurutan di SQL Editor, satu file per Run (semua idempotent, tidak menghapus data):
+`sql-parts/12a-profil-izin-tema.sql` → `12b-status-pesan.sql` → `12c-pesan-sementara.sql` → `12d-story-reply-repost.sql` → `12e-laporan-moderasi.sql` → `12f-verifikasi.sql` → `12g-kontak.sql`
+(`update-fitur-orvix.sql` = gabungan ketujuhnya, untuk editor desktop).
+
+- **Info profil**: memakai kolom `status_text` yang sudah ada (maks. 139 karakter, hanya pemilik yang bisa mengubah).
+- **Centang pesan**: `message_reads` + kolom `last_delivered_at`; status ditulis hanya lewat RPC `mark_read` / `orvix_mark_delivered`.
+- **Pesan sementara**: berlaku untuk pesan baru. Deploy pembersih lampiran: `supabase functions deploy purge-expired --no-verify-jwt`, set secret `CRON_SECRET`, lalu jadwalkan (mis. tiap 15 menit) dengan header `x-cron-secret`. Fallback baris teks: panggil `select public.orvix_purge_expired_text();` lewat pg_cron.
+- **Verifikasi**: bucket privat `verification-docs` dibuat oleh 12f. Admin meninjau di Admin Center → Verifikasi.
+- **Tema**: `profiles.theme` (disinkronkan lintas perangkat) + `localStorage['orvix:theme']`.
+- Catatan: `supabase.sql` di repo ini berhenti di bagian 10. Fungsi `admin_api`, `delete_my_account`, dan `story_feed` yang dipakai aplikasi berasal dari SQL lain (mis. `perbaikan-bagian-13.sql`) yang tidak ikut di zip; update ini tidak menimpanya.
