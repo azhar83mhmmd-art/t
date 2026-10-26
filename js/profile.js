@@ -1,5 +1,6 @@
 // Profil, pengaturan privasi, keamanan, blokir, hapus akun.
-import { sb, requireAuth, cacheMe, logout, fetchProfiles, purgeAvatarFiles, purgeUserFiles, errMsg } from './supabase.js';
+import { sb, requireAuth, cacheMe, logout, fetchProfiles, purgeAvatarFiles, purgeBannerFiles, purgeUserFiles, errMsg } from './supabase.js';
+import { cropImage } from './cropper.js';
 import { $, esc, icon, avatar, nameWithBadge, toast, setBusy, openModal, confirmDialog, copyText, validateImage, extOf, mountShell, THEMES, applyTheme, currentTheme, relTime } from './utils.js';
 
 const { profile: me } = await requireAuth({ shell: '/profile' });
@@ -8,19 +9,25 @@ const body = $('#body');
 const VIS = { friends: 'Teman saya', public: 'Semua pengguna', only_me: 'Hanya saya' };
 const MSGP = { friends: ['Harus berteman terlebih dahulu', 'Orang yang menemukan ID ORVIX-mu harus mengirim permintaan pertemanan dan diterima sebelum bisa chat.'], anyone: ['Izinkan chat langsung', 'Pengguna yang menemukan akunmu lewat ID ORVIX bisa langsung memulai chat tanpa berteman. Blokir tetap berlaku.'] };
 
+const COLS = 'display_name,username,avatar_url,status_text,profile_public,show_last_seen,story_visibility,who_can_message,theme';
 async function upd(fields) {
-  const { data, error } = await sb.from('profiles').update(fields).eq('id', me.id).select('display_name,username,avatar_url,status_text,profile_public,show_last_seen,story_visibility,who_can_message,theme').single();
+  // banner_url hanya ikut diminta bila kolomnya sudah ada (setelah sql-parts/12h dijalankan)
+  const cols = 'banner_url' in fields || 'banner_url' in me ? COLS + ',banner_url' : COLS;
+  const { data, error } = await sb.from('profiles').update(fields).eq('id', me.id).select(cols).single();
   if (error) throw error; Object.assign(me, data); cacheMe(me); return data;
 }
+const noBannerCol = (x) => /banner_url/i.test(errMsg(x)) ? new Error('Fitur banner belum aktif di database. Jalankan sql-parts/12h-banner-profil.sql di SQL Editor Supabase.') : x;
+let pickKind = 'avatar', firstRender = true;
 const sw = (id, on, label) => `<button class="switch" role="switch" id="${id}" aria-checked="${on}" aria-label="${label}"></button>`;
 
 function render() {
   const joined = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(me.created_at));
   const notifOn = localStorage.getItem('orvix_notif') === '1' && 'Notification' in window && Notification.permission === 'granted';
   body.innerHTML = `
-  <div class="pcard"><div class="cover"><button class="ibtn" id="cam" aria-label="Ganti foto profil">${icon('camera')}</button></div>
-   ${avatar(me.display_name, me.avatar_url, 96)}
-   <h2 style="margin-top:10px;font-size:22px">${nameWithBadge(me.display_name, me.is_verified, 20)} <button class="ibtn" id="editP" aria-label="Edit profil" style="display:inline-grid;vertical-align:middle">${icon('edit', 18)}</button></h2>
+  <div class="pcard"><div class="cover ${me.banner_url ? 'has' : ''}" id="cover">${me.banner_url ? `<img class="cover-img" src="${esc(me.banner_url)}" alt="Banner profil" decoding="async" onload="this.classList.add('in')" onerror="this.remove()">` : ''}<span class="cover-fx" aria-hidden="true"></span>
+     ${me.banner_url ? `<div class="cover-act"><button class="ibtn" id="camB" aria-label="Ganti banner">${icon('image', 20)}</button><button class="ibtn" id="delB" aria-label="Hapus banner">${icon('trash', 20)}</button></div>` : `<button class="cover-add" id="camB">${icon('image', 18)}<span>Tambah banner</span></button>`}</div>
+   <span class="avw pav">${avatar(me.display_name, me.avatar_url, 96)}<button class="avcam" id="cam" aria-label="Ganti foto profil">${icon('camera', 18)}</button></span>
+   <h2 style="margin-top:10px;font-size:22px">${nameWithBadge(me.display_name, me.is_verified, 22, true)} <button class="ibtn" id="editP" aria-label="Edit profil" style="display:inline-grid;vertical-align:middle">${icon('edit', 18)}</button></h2>
    <p class="dim">@${esc(me.username)}</p>
    <p class="pid" style="margin-top:6px"><span>ID ${esc(me.orvix_id)}</span><button class="ibtn" id="cpId" aria-label="Salin ID ORVIX" style="width:32px;height:32px">${icon('copy', 16)}</button></p>
    <p class="sec" style="margin:12px 0 0">Info</p><p style="margin:2px 16px">${esc(me.status_text || 'Belum ada info')}</p><p class="dim">Bergabung ${joined}</p>
@@ -31,11 +38,15 @@ function render() {
   <button class="setrow" id="rowMsg">${icon('msg', 24)}<span class="grow"><b>Siapa yang dapat mengirim pesan kepada saya?</b><small>${MSGP[me.who_can_message || 'friends'][0]}</small></span>${icon('chev', 18)}</button>
   <div class="setrow">${icon('clock', 24)}<span class="grow"><b>Terakhir aktif dan status online</b><small>${me.show_last_seen ? 'Terlihat oleh teman dan lawan chat' : 'Disembunyikan'}</small></span>${sw('swSeen', me.show_last_seen, 'Tampilkan terakhir aktif')}</div>
   <p class="sec">Tampilan</p>
-  <div class="themes" role="radiogroup" aria-label="Tema aplikasi">${Object.entries(THEMES).map(([k, [n, d]]) => `<button class="theme-card th-${k}" role="radio" aria-checked="${currentTheme() === k}" data-th="${k}"><span class="th-prev"><i></i><i></i><i></i></span><b>${n}</b><small>${d}</small></button>`).join('')}</div>
+  <div class="themes" role="radiogroup" aria-label="Tema aplikasi">${Object.entries(THEMES).map(([k, [n, d]]) => `<button class="tcard th-${k}" role="radio" aria-checked="${currentTheme() === k}" data-th="${k}">
+    <span class="tphone" aria-hidden="true"><span class="tbar"><i class="tav"></i><i class="tl"></i><i class="tl s"></i></span><span class="tbody"><span class="tb in"></span><span class="tb out"></span><span class="tb in s"></span><span class="tb out s"></span></span><span class="tin"><i></i><b></b></span></span>
+    <span class="tmeta"><span class="tname"><b>${n}</b><span class="tchk" aria-hidden="true">${icon('check', 14)}</span></span><small>${d}</small><span class="tdots" aria-hidden="true"><i></i><i></i><i></i><i></i></span></span></button>`).join('')}</div>
   <p class="sec">Akun</p>
   ${me.is_verified ? `<div class="setrow">${icon('badge', 24)}<span class="grow"><b>Akun terverifikasi</b><small>Lencana terverifikasi aktif di profil, chat, dan story</small></span></div>` : `<button class="setrow" id="rowVerif">${icon('badge', 24)}<span class="grow"><b>Ajukan verifikasi kreator/bisnis</b><small>Dapatkan lencana jika memenuhi kriteria ORVIX</small></span>${icon('chev', 18)}</button>`}
   <button class="setrow" id="rowPhoto">${icon('camera', 24)}<span class="grow"><b>Ganti foto profil</b></span>${icon('chev', 18)}</button>
   <button class="setrow" id="rowDelPhoto">${icon('trash', 24)}<span class="grow"><b>Hapus foto profil</b></span>${icon('chev', 18)}</button>
+  <button class="setrow" id="rowBanner">${icon('image', 24)}<span class="grow"><b>${me.banner_url ? 'Ganti banner profil' : 'Tambah banner profil'}</b><small>Gambar panjang di atas profilmu. Kamu bisa memotongnya sendiri.</small></span>${icon('chev', 18)}</button>
+  ${me.banner_url ? `<button class="setrow" id="rowDelBanner">${icon('trash', 24)}<span class="grow"><b>Hapus banner profil</b></span>${icon('chev', 18)}</button>` : ''}
   <div class="setrow">${icon('bell', 24)}<span class="grow"><b>Notifikasi</b><small>Notifikasi browser untuk pesan baru</small></span>${sw('swNotif', notifOn, 'Notifikasi')}</div>
   <button class="setrow" id="rowPw">${icon('lock', 24)}<span class="grow"><b>Keamanan akun</b><small>Ubah password</small></span>${icon('chev', 18)}</button>
   <button class="setrow" id="rowBlock">${icon('ban', 24)}<span class="grow"><b>Pengguna diblokir</b><small>Lihat dan buka blokir</small></span>${icon('chev', 18)}</button>
@@ -44,26 +55,34 @@ function render() {
   <button class="setrow danger" id="rowDel">${icon('trash', 24)}<span class="grow"><b>Hapus akun</b><small>Hapus permanen akun dan semua datamu</small></span></button>
   <button class="setrow danger" id="rowOut">${icon('logout', 24)}<span class="grow"><b>Logout</b></span></button>
   <input type="file" id="file" accept="image/jpeg,image/png,image/webp" hidden>`;
+  if (firstRender) {   // animasi masuk berurutan hanya saat halaman pertama kali dimuat, bukan setiap pengaturan berubah
+    firstRender = false; [...body.children].forEach((c, i) => c.style.setProperty('--i', Math.min(i, 14))); body.classList.add('stagger'); setTimeout(() => body.classList.remove('stagger'), 1400);
+  }
   wire();
 }
 
 function wire() {
   const guard = (fn) => async (e) => { try { await fn(e); } catch (x) { toast(errMsg(x), 'error'); } };
   $('#cpId').onclick = () => copyText(me.orvix_id);
-  $('#cam').onclick = $('#rowPhoto').onclick = () => $('#file').click();
+  const pick = (kind) => { pickKind = kind; $('#file').click(); };
+  $('#cam').onclick = $('#rowPhoto').onclick = () => pick('avatar');
+  $('#camB').onclick = $('#rowBanner').onclick = () => pick('banner');
   $('#file').onchange = guard(async (e) => {
-    const f = e.target.files[0]; e.target.value = ''; const bad = validateImage(f, 2); if (bad) return toast(bad, 'error');
-    toast('Mengunggah foto…'); const path = `${me.id}/avatar-${Date.now()}.${extOf(f)}`;
-    const up = await sb.storage.from('avatars').upload(path, f, { contentType: f.type, cacheControl: '3600' }); if (up.error) throw up.error;
-    const url = sb.storage.from('avatars').getPublicUrl(path).data.publicUrl; await upd({ avatar_url: url });
-    const { data } = await sb.storage.from('avatars').list(me.id); const old = (data || []).filter((x) => `${me.id}/${x.name}` !== path).map((x) => `${me.id}/${x.name}`); if (old.length) await sb.storage.from('avatars').remove(old);
-    render(); toast('Foto profil diperbarui', 'success');
+    const f = e.target.files[0], kind = pickKind; e.target.value = ''; if (!f) return;
+    const bad = validateImage(f, 25); if (bad) return toast(bad, 'error');   // sumber boleh besar; hasil crop dikompres otomatis di bawah batas 2 MB
+    if (kind === 'banner') await saveBanner(f); else await saveAvatar(f);
   });
   $('#rowDelPhoto').onclick = guard(async () => {
     if (!me.avatar_url) return toast('Belum ada foto profil');
     if (!(await confirmDialog({ title: 'Hapus foto profil?', message: 'Foto akan dihapus dari akunmu.', confirmText: 'Hapus', danger: true }))) return;
     await purgeAvatarFiles(me.id); await upd({ avatar_url: null }); render(); toast('Foto dihapus', 'success');
   });
+  const delBanner = guard(async () => {
+    if (!me.banner_url) return;
+    if (!(await confirmDialog({ title: 'Hapus banner?', message: 'Banner akan dihapus dari profilmu.', confirmText: 'Hapus', danger: true }))) return;
+    await upd({ banner_url: null }).catch((x) => { throw noBannerCol(x); }); await purgeBannerFiles(me.id).catch(() => {}); render(); toast('Banner dihapus', 'success');
+  });
+  if ($('#delB')) $('#delB').onclick = delBanner; if ($('#rowDelBanner')) $('#rowDelBanner').onclick = delBanner;
   $('#editP').onclick = $('#editP2').onclick = editProfile;
   const toggle = (id, key) => { $(id).onclick = guard(async (e) => { const b = e.currentTarget, v = b.getAttribute('aria-checked') !== 'true'; b.disabled = true; try { await upd({ [key]: v }); render(); } finally { b.disabled = false; } }); };
   toggle('#swPub', 'profile_public'); toggle('#swSeen', 'show_last_seen');
@@ -80,11 +99,32 @@ function wire() {
   };
   $('#rowMsg').onclick = msgPermModal; $('#rowVerif') && ($('#rowVerif').onclick = verifModal);
   document.querySelectorAll('[data-th]').forEach((b) => b.onclick = guard(async () => {
-    const k = b.dataset.th; applyTheme(k); render();   // langsung terpasang; sinkron ke akun di latar belakang
+    const k = b.dataset.th, r = b.getBoundingClientRect(); applyTheme(k, { x: r.left + r.width / 2, y: r.top + r.height / 2 }); render();   // langsung terpasang; sinkron ke akun di latar belakang
     try { await upd({ theme: k }); } catch { toast('Tema tersimpan di perangkat ini, tapi belum tersinkron ke akun.', 'error'); }
   }));
   $('#rowPw').onclick = passwordModal; $('#rowBlock').onclick = blockedModal; $('#rowDel').onclick = deleteModal;
   $('#rowOut').onclick = async () => { if (await confirmDialog({ title: 'Keluar dari ORVIX?', message: 'Kamu perlu masuk lagi untuk memakai akun ini.', confirmText: 'Logout' })) logout(); };
+}
+
+async function saveAvatar(f) {
+  const blob = await cropImage(f, { aspect: 1, outW: 512, round: true, title: 'Potong foto profil', hint: 'Seret untuk menggeser, cubit atau geser slider untuk zoom. Lingkaran adalah tampilan akhir fotomu.' });
+  if (!blob) return;
+  toast('Mengunggah foto…'); const path = `${me.id}/avatar-${Date.now()}.${blob.type === 'image/webp' ? 'webp' : 'jpg'}`;
+  const up = await sb.storage.from('avatars').upload(path, blob, { contentType: blob.type, cacheControl: '3600' }); if (up.error) throw up.error;
+  const url = sb.storage.from('avatars').getPublicUrl(path).data.publicUrl;
+  try { await upd({ avatar_url: url }); } catch (x) { sb.storage.from('avatars').remove([path]).catch(() => {}); throw x; }
+  const { data } = await sb.storage.from('avatars').list(me.id); const old = (data || []).filter((x) => x.name.startsWith('avatar-') && `${me.id}/${x.name}` !== path).map((x) => `${me.id}/${x.name}`); if (old.length) await sb.storage.from('avatars').remove(old);
+  render(); toast('Foto profil diperbarui', 'success');
+}
+async function saveBanner(f) {
+  const blob = await cropImage(f, { aspect: 3, outW: 1500, title: 'Atur banner', hint: 'Bingkai ini persis tampilan banner di profilmu. Seret untuk memilih bagian gambar, cubit atau geser slider untuk zoom.' });
+  if (!blob) return;
+  toast('Mengunggah banner…'); const path = `${me.id}/banner-${Date.now()}.${blob.type === 'image/webp' ? 'webp' : 'jpg'}`;
+  const up = await sb.storage.from('avatars').upload(path, blob, { contentType: blob.type, cacheControl: '3600' }); if (up.error) throw up.error;
+  const url = sb.storage.from('avatars').getPublicUrl(path).data.publicUrl;
+  try { await upd({ banner_url: url }); } catch (x) { sb.storage.from('avatars').remove([path]).catch(() => {}); throw noBannerCol(x); }
+  await purgeBannerFiles(me.id, path).catch(() => {});
+  render(); toast('Banner diperbarui', 'success');
 }
 
 function editProfile() {
