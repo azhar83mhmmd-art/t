@@ -81,7 +81,8 @@ begin
 end $$;
 
 -- Daftar chat: abaikan pesan kedaluwarsa dan pesan sistem pada pratinjau & hitungan belum dibaca
-create or replace function public.list_my_conversations()
+drop function if exists public.list_my_conversations();
+create function public.list_my_conversations()
 returns table (conv_id uuid, conv_type text, title text, other_id uuid, other_username text, other_name text,
                other_avatar text, other_verified boolean, last_content text, last_at timestamptz,
                last_sender uuid, last_deleted boolean, unread bigint, created_at timestamptz)
