@@ -1,7 +1,7 @@
 // Klien Supabase, sesi, Realtime, dan helper data bersama.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-import { mountShell, applyTheme, currentTheme } from './utils.js';
+import { mountShell, applyTheme, currentTheme, setBadgeLoader, BF, hydrateBadges, applyLook } from './utils.js';
 
 export const configured = !/^ISI_/.test(SUPABASE_URL) && !/^ISI_/.test(SUPABASE_ANON_KEY);
 export const sb = createClient(configured ? SUPABASE_URL : 'https://placeholder.supabase.co', configured ? SUPABASE_ANON_KEY : 'placeholder',
@@ -44,9 +44,10 @@ export async function requireAuth({ admin = false, shell = null } = {}) {
     if (p.is_suspended) return bounce('?suspended=1');
     if (admin && p.role !== 'admin') { location.replace('/chat'); return never(); }
     if (p.theme && p.theme !== currentTheme()) applyTheme(p.theme);   // sinkron tema lintas perangkat
-    cacheMe(p); if (shell && (p.role === 'admin') !== (cm?.role === 'admin')) mountShell(shell, p.role === 'admin');
+    applyLook(p); cacheMe(p); if (shell && (p.role === 'admin') !== (cm?.role === 'admin')) mountShell(shell, p.role === 'admin');
     return p;
   };
+  if (profile) applyLook(profile);
   if (profile) { verify().then((p) => p && Object.assign(profile, p)).catch(() => {}); }
   else profile = await verify();
   sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT') { cacheMe(null); cleanupAll(); location.replace('/'); } });
@@ -65,12 +66,19 @@ export async function logout() { cacheMe(null); cleanupAll(); await sb.auth.sign
 
 // banner_url baru ada setelah sql-parts/12h dijalankan; bila kolom belum ada, query otomatis jatuh kembali tanpa banner.
 let bannerCol = true;
+// Pemuat badge: kolom badge ada setelah sql-parts/12i dijalankan; sebelum itu hanya is_verified yang dimuat.
+const BCOLS = 'id,is_verified,is_creator,is_business,is_official,premium_until'; let badgeCols = true;
+setBadgeLoader(async (ids) => {
+  let r = badgeCols ? await sb.from('profiles').select(BCOLS).in('id', ids) : { error: 1 };
+  if (r.error) { if (badgeCols && /is_creator|is_business|is_official|premium_until/i.test(r.error.message || '')) badgeCols = false; r = await sb.from('profiles').select('id,is_verified').in('id', ids); }
+  if (r.error) throw r.error; return r.data;
+});
 export async function fetchProfiles(ids) {
   ids = [...new Set(ids)].filter(Boolean); if (!ids.length) return new Map();
   const base = 'id,orvix_id,username,display_name,avatar_url,is_verified,status_text';
   let r = await sb.from('profiles').select(bannerCol ? base + ',banner_url' : base).in('id', ids);
   if (r.error && bannerCol && /banner_url/i.test(r.error.message || '')) { bannerCol = false; r = await sb.from('profiles').select(base).in('id', ids); }
-  if (r.error) throw r.error; return new Map(r.data.map((p) => [p.id, p]));
+  if (r.error) throw r.error; return new Map(r.data.map((p) => [p.id, p]));   // badge lengkap dimuat terpisah oleh loadBadges (otomatis lewat nameWithBadge)
 }
 
 // Daftar hubungan pertemanan milik saya + profil lawan
