@@ -1,7 +1,7 @@
 // Klien Supabase, sesi, Realtime, dan helper data bersama.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-import { mountShell } from './utils.js';
+import { mountShell, applyTheme, currentTheme } from './utils.js';
 
 export const configured = !/^ISI_/.test(SUPABASE_URL) && !/^ISI_/.test(SUPABASE_ANON_KEY);
 export const sb = createClient(configured ? SUPABASE_URL : 'https://placeholder.supabase.co', configured ? SUPABASE_ANON_KEY : 'placeholder',
@@ -43,6 +43,7 @@ export async function requireAuth({ admin = false, shell = null } = {}) {
     if (!p) return bounce('?noprofile=1');
     if (p.is_suspended) return bounce('?suspended=1');
     if (admin && p.role !== 'admin') { location.replace('/chat'); return never(); }
+    if (p.theme && p.theme !== currentTheme()) applyTheme(p.theme);   // sinkron tema lintas perangkat
     cacheMe(p); if (shell && (p.role === 'admin') !== (cm?.role === 'admin')) mountShell(shell, p.role === 'admin');
     return p;
   };
@@ -78,7 +79,7 @@ export async function fetchFriendships(meId) {
 
 // Hapus semua berkas milik uid di bucket avatars & stories (pemilik, atau admin lewat kebijakan Storage).
 export async function purgeUserFiles(uid) {
-  for (const bucket of ['avatars', 'stories']) {
+  for (const bucket of ['avatars', 'stories', 'verification-docs']) {
     for (let i = 0; i < 10; i++) {
       const { data, error } = await sb.storage.from(bucket).list(uid, { limit: 1000 });
       if (error || !data?.length) break;
