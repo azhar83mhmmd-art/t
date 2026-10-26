@@ -1,6 +1,6 @@
 // Halaman link undangan: /join/<kode>. Pratinjau terbuka tanpa login; bergabung butuh akun.
 import { sb, errMsg } from './supabase.js';
-import { $, esc, icon, verifiedBadge, injectSprite, toast, setBusy, copyText } from './utils.js';
+import { $, esc, icon, verifiedBadge, injectSprite, toast, setBusy, copyText, badgeHtml } from './utils.js';
 injectSprite();
 const card = $('#card'), code = (location.pathname.split('/')[2] || new URLSearchParams(location.search).get('c') || '').trim();
 const num = (n) => Number(n).toLocaleString('id-ID');
@@ -18,7 +18,7 @@ skeleton();
   card.className = 'inv'; card.style.setProperty('--h', h);
   card.innerHTML = `<div class="inv-banner"><span class="inv-pill">${icon(ch ? 'megaphone' : 'users', 14)} ${ch ? 'Undangan saluran' : 'Undangan grup'}</span></div>
   <div class="inv-body"><div class="inv-av" aria-hidden="true"><b>${esc((c.title || '?').trim().charAt(0).toUpperCase())}</b></div>
-    <h1 class="inv-name">${esc(c.title)}${c.is_official ? verifiedBadge(22) : ''}</h1>
+    <h1 class="inv-name">${esc(c.title)}${c.is_official ? badgeHtml('official', 22, true) : ''}</h1>
     <div class="inv-stats"><span>${icon('users', 16)}<b>${num(c.members)}</b> ${ch ? 'pengikut' : 'anggota'}</span><span>${icon(ch ? 'megaphone' : 'chat', 16)}${ch ? 'Saluran' : 'Grup'}</span>${c.joined ? `<span class="ok">${icon('check', 16)}Sudah bergabung</span>` : ''}</div>
     ${c.description ? `<p class="inv-desc">${esc(c.description)}</p>` : ''}
     <ul class="inv-perks">${perks.map(([i, t, d]) => `<li><span>${icon(i, 18)}</span><div><b>${t}</b><small>${d}</small></div></li>`).join('')}</ul>
