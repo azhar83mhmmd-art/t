@@ -2,6 +2,8 @@
 import { sb, requireAuth, cacheMe, logout, fetchProfiles, purgeAvatarFiles, purgeBannerFiles, purgeUserFiles, errMsg } from './supabase.js';
 import { cropImage } from './cropper.js';
 import { openPremiumHub } from './premium.js';
+import { canInstall, promptInstall, onInstallChange, isStandalone, isIOS, wasInstalled } from './pwa.js';
+import { pushStatus, enablePush, disablePush, getPrefs, setPrefs, sendTest } from './push.js';
 import { $, esc, icon, avatar, nameWithBadge, toast, setBusy, openModal, confirmDialog, copyText, validateImage, extOf, mountShell, THEMES, applyTheme, currentTheme, relTime, wallpaperModal, isPremium } from './utils.js';
 
 const { profile: me } = await requireAuth({ shell: '/profile' });
@@ -21,9 +23,71 @@ const noBannerCol = (x) => /banner_url/i.test(errMsg(x)) ? new Error('Fitur bann
 let pickKind = 'avatar', firstRender = true;
 const sw = (id, on, label) => `<button class="switch" role="switch" id="${id}" aria-checked="${on}" aria-label="${label}"></button>`;
 
+/* ---------- PWA + notifikasi push ---------- */
+const sr = (id, t, sub, right = '') => `<div class="setrow" ${id ? `id="${id}"` : ''}>${icon('bell', 24)}<span class="grow"><b>${t}</b><small>${sub}</small></span>${right}</div>`;
+const gd = (fn) => async (e) => { try { await fn(e); } catch (x) { toast(errMsg(x), 'error'); } };
+let installBound = false;
+const SVG = (d, s = 20) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${d}</svg>`;
+const I_DL = '<path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/>', I_BOLT = '<path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/>', I_APP = '<rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M10.5 18.5h3"/>', I_SHARE = '<path d="M12 15V4m0 0L8 8m4-4 4 4M6 12v7h12v-7"/>', I_DOTS = '<circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/>';
+function paintInstall() {
+  const box = $('#installBox'); if (!box) return;
+  if (!installBound) { installBound = true; onInstallChange(() => paintInstall()); }
+  const head = (badge = '') => `<div class="inst-top"><span class="inst-ic"><img src="/assets/icon-192.png" alt="" width="56" height="56"></span><span class="grow"><b>ORVIX untuk perangkat ini</b><small>Pasang sebagai aplikasi: buka dari layar utama, tanpa bilah alamat.</small></span>${badge}</div>`;
+  const pts = `<ul class="inst-pts"><li>${icon('bell', 18)}<span>Notifikasi pesan, permintaan pertemanan, dan panggilan</span></li><li>${SVG(I_BOLT, 18)}<span>Terbuka lebih cepat dari ikon di layar utama</span></li><li>${SVG(I_APP, 18)}<span>Tampil layar penuh seperti aplikasi biasa</span></li></ul>`;
+  const step = (n, t) => `<li><i>${n}</i><span>${t}</span></li>`;
+  let inner;
+  if (isStandalone()) inner = head(`<span class="inst-ok">${icon('check', 14)} Terpasang</span>`) + `<p class="inst-note">Kamu sedang memakai ORVIX sebagai aplikasi. Aktifkan notifikasi di bawah agar tidak ketinggalan chat dan telepon.</p>`;
+  else if (canInstall()) inner = head() + pts + `<button class="btn primary block lg" id="btnInstall">${SVG(I_DL, 20)} Install ORVIX</button>`;
+  else if (wasInstalled()) inner = head(`<span class="inst-ok">${icon('check', 14)} Terpasang</span>`) + `<p class="inst-note">ORVIX sudah terpasang di perangkat ini. Buka lewat ikon ORVIX di layar utama atau daftar aplikasi agar notifikasi bekerja penuh.</p>`;
+  else if (!isSecureContext) inner = head() + `<p class="inst-note">Pemasangan hanya tersedia lewat HTTPS. Buka ORVIX dari alamat https:// lalu coba lagi.</p>`;
+  else if (isIOS()) inner = head() + pts + `<ol class="inst-steps">${step(1, `Ketuk tombol <b>Bagikan</b> ${SVG(I_SHARE, 16)} di Safari`)}${step(2, 'Pilih <b>Tambahkan ke Layar Utama</b>')}${step(3, 'Ketuk <b>Tambah</b>, lalu buka ORVIX dari ikonnya')}</ol>`;
+  else inner = head() + pts + `<ol class="inst-steps">${step(1, `Buka menu titik tiga ${SVG(I_DOTS, 16)} di Chrome atau Edge`)}${step(2, 'Pilih <b>Instal aplikasi</b> atau <b>Tambahkan ke layar utama</b>')}${step(3, 'Konfirmasi, lalu buka ORVIX dari ikonnya')}</ol><p class="inst-note">Firefox desktop belum mendukung pemasangan.</p>`;
+  box.innerHTML = `<div class="inst">${inner}</div>`;
+  const bi = $('#btnInstall');
+  if (bi) bi.onclick = async () => {
+    bi.disabled = true; const r = await promptInstall();
+    if (r === 'accepted') toast('ORVIX terpasang. Buka dari ikonnya, lalu aktifkan notifikasi.', 'success'); else if (r === 'unavailable') toast('Pemasangan belum bisa dimulai. Pakai menu browser (titik tiga), lalu Instal aplikasi.', 'error');
+    paintInstall();
+  };
+}
+async function paintPush() {
+  const box = $('#pushBox'); if (!box) return;
+  box.innerHTML = sr('', 'Notifikasi', 'Memeriksa status…');
+  const st = await pushStatus(me.id); if ($('#pushBox') !== box) return;   // halaman dirender ulang saat menunggu
+  if (!st.supported) {
+    if (st.iosNeedsInstall) return void (box.innerHTML = sr('', 'Notifikasi', 'Di iPhone/iPad, pasang ORVIX ke Layar Utama dulu (Bagikan, Tambahkan ke Layar Utama), lalu buka dari ikonnya dan aktifkan di sini.'));
+    if ('Notification' in window) {   // cadangan: notifikasi hanya saat ORVIX terbuka
+      const on = localStorage.getItem('orvix_notif') === '1' && Notification.permission === 'granted';
+      box.innerHTML = sr('', 'Notifikasi', 'Browser ini tidak mendukung push. Notifikasi hanya muncul saat ORVIX terbuka.', sw('swNotif', on, 'Notifikasi'));
+      $('#swNotif').onclick = gd(async () => { if (on) { localStorage.setItem('orvix_notif', '0'); return paintPush(); } const p = await Notification.requestPermission(); if (p !== 'granted') return toast('Izin notifikasi ditolak di browser', 'error'); localStorage.setItem('orvix_notif', '1'); paintPush(); });
+      return;
+    }
+    return void (box.innerHTML = sr('', 'Notifikasi', 'Browser ini tidak mendukung notifikasi push.'));
+  }
+  if (!st.configured) return void (box.innerHTML = sr('', 'Notifikasi', 'Belum dikonfigurasi di server (kunci VAPID belum diisi).'));
+  if (st.permission === 'denied') return void (box.innerHTML = sr('', 'Notifikasi', 'Izin ditolak di browser. Ubah lewat pengaturan situs (ikon gembok), lalu muat ulang halaman.'));
+  box.innerHTML = sr('', 'Notifikasi', st.subscribed ? 'Aktif di perangkat ini.' : 'Terima pesan, permintaan pertemanan, dan panggilan di perangkat ini.', sw('swNotif', st.subscribed, 'Notifikasi')) + (st.subscribed ? '<div id="prefBox"></div>' : '');
+  const sb2 = $('#swNotif');
+  sb2.onclick = async () => {
+    sb2.disabled = true;
+    try { if (st.subscribed) { await disablePush(me.id); toast('Notifikasi dinonaktifkan di perangkat ini', 'success'); } else { await enablePush(me.id); toast('Notifikasi aktif', 'success'); } }
+    catch (e) { toast(e.message || errMsg(e), 'error'); }
+    paintPush();
+  };
+  if (st.subscribed) paintPrefs();
+}
+async function paintPrefs() {
+  const box = $('#prefBox'); if (!box) return;
+  let pr; try { pr = await getPrefs(); } catch (e) { box.innerHTML = `<p class="dim" style="margin:6px 16px">Preferensi tidak dapat dimuat: ${esc(errMsg(e))}</p>`; return; }
+  if ($('#prefBox') !== box) return;
+  const items = [['messages', 'Pesan pribadi', 'Pesan baru dari chat pribadi'], ['groups', 'Pesan grup', 'Pesan baru dari grup'], ['friends', 'Permintaan pertemanan', 'Saat ada yang mengajakmu berteman'], ['calls', 'Panggilan masuk', 'Tergantung dukungan browser dan perangkat; dering di dalam ORVIX tetap berjalan'], ['preview', 'Tampilkan isi pesan', 'Matikan agar notifikasi hanya menulis "Pesan baru"']];
+  box.innerHTML = items.map(([k, t, d]) => `<div class="setrow" style="margin-left:14px">${icon('check', 20)}<span class="grow"><b>${t}</b><small>${d}</small></span>${sw('pf_' + k, pr[k], t)}</div>`).join('') + '<div style="margin:8px 16px"><button class="btn" id="btnPushTest">Kirim notifikasi uji</button><p class="dim" id="pushTestMsg" style="margin-top:6px"></p></div>';
+  items.forEach(([k]) => { const b = $('#pf_' + k); b.onclick = gd(async () => { const v = b.getAttribute('aria-checked') !== 'true'; b.disabled = true; try { await setPrefs({ [k]: v }); b.setAttribute('aria-checked', String(v)); } finally { b.disabled = false; } }); });
+  $('#btnPushTest').onclick = async (e) => { const b = e.currentTarget; setBusy(b, true, 'Mengirim'); try { await sendTest(); $('#pushTestMsg').textContent = 'Uji dikirim lewat server. Jika tidak muncul dalam beberapa detik, periksa konfigurasi di README bagian 13.'; } catch (x) { $('#pushTestMsg').textContent = errMsg(x); } setBusy(b, false); };
+}
+
 function render() {
   const joined = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(me.created_at));
-  const notifOn = localStorage.getItem('orvix_notif') === '1' && 'Notification' in window && Notification.permission === 'granted';
   body.innerHTML = `
   <div class="pcard"><div class="cover ${me.banner_url ? 'has' : ''}" id="cover">${me.banner_url ? `<img class="cover-img" src="${esc(me.banner_url)}" alt="Banner profil" decoding="async" onload="this.classList.add('in')" onerror="this.remove()">` : ''}<span class="cover-fx" aria-hidden="true"></span>
      ${me.banner_url ? `<div class="cover-act"><button class="ibtn" id="camB" aria-label="Ganti banner">${icon('image', 20)}</button><button class="ibtn" id="delB" aria-label="Hapus banner">${icon('trash', 20)}</button></div>` : `<button class="cover-add" id="camB">${icon('image', 18)}<span>Tambah banner</span></button>`}</div>
@@ -34,6 +98,9 @@ function render() {
    <p class="sec" style="margin:12px 0 0">Info</p><p style="margin:2px 16px">${esc(me.status_text || 'Belum ada info')}</p><p class="dim">Bergabung ${joined}</p>
    <button class="btn" id="editP2" style="margin-top:14px">${icon('edit', 18)} Edit profil</button></div>
   <div class="setrow">${icon('globe', 24)}<span class="grow"><b>Profil publik</b><small>Siapa pun bisa melihat foto dan statusmu</small></span>${sw('swPub', me.profile_public, 'Profil publik')}</div>
+  <p class="sec">Aplikasi dan notifikasi</p>
+  <div id="installBox"></div>
+  <div id="pushBox"></div>
   <p class="sec">Privasi</p>
   <button class="setrow" id="rowStory">${icon('updates', 24)}<span class="grow"><b>Siapa yang bisa melihat story-ku</b><small>${VIS[me.story_visibility]} (default untuk story baru)</small></span>${icon('chev', 18)}</button>
   <button class="setrow" id="rowMsg">${icon('msg', 24)}<span class="grow"><b>Siapa yang dapat mengirim pesan kepada saya?</b><small>${MSGP[me.who_can_message || 'friends'][0]}</small></span>${icon('chev', 18)}</button>
@@ -50,7 +117,6 @@ function render() {
   <button class="setrow" id="rowDelPhoto">${icon('trash', 24)}<span class="grow"><b>Hapus foto profil</b></span>${icon('chev', 18)}</button>
   <button class="setrow" id="rowBanner">${icon('image', 24)}<span class="grow"><b>${me.banner_url ? 'Ganti banner profil' : 'Tambah banner profil'}</b><small>Gambar panjang di atas profilmu. Kamu bisa memotongnya sendiri.</small></span>${icon('chev', 18)}</button>
   ${me.banner_url ? `<button class="setrow" id="rowDelBanner">${icon('trash', 24)}<span class="grow"><b>Hapus banner profil</b></span>${icon('chev', 18)}</button>` : ''}
-  <div class="setrow">${icon('bell', 24)}<span class="grow"><b>Notifikasi</b><small>Notifikasi browser untuk pesan baru</small></span>${sw('swNotif', notifOn, 'Notifikasi')}</div>
   <button class="setrow" id="rowPw">${icon('lock', 24)}<span class="grow"><b>Keamanan akun</b><small>Ubah password</small></span>${icon('chev', 18)}</button>
   <button class="setrow" id="rowBlock">${icon('ban', 24)}<span class="grow"><b>Pengguna diblokir</b><small>Lihat dan buka blokir</small></span>${icon('chev', 18)}</button>
   <a class="setrow" href="/about" style="color:inherit">${icon('globe', 24)}<span class="grow"><b>Tentang ORVIX</b><small>Kenali ORVIX dan fitur-fiturnya</small></span>${icon('chev', 18)}</a>
@@ -89,13 +155,7 @@ function wire() {
   $('#editP').onclick = $('#editP2').onclick = editProfile;
   const toggle = (id, key) => { $(id).onclick = guard(async (e) => { const b = e.currentTarget, v = b.getAttribute('aria-checked') !== 'true'; b.disabled = true; try { await upd({ [key]: v }); render(); } finally { b.disabled = false; } }); };
   toggle('#swPub', 'profile_public'); toggle('#swSeen', 'show_last_seen');
-  $('#swNotif').onclick = guard(async (e) => {
-    const b = e.currentTarget, on = b.getAttribute('aria-checked') === 'true';
-    if (on) { localStorage.setItem('orvix_notif', '0'); return render(); }
-    if (!('Notification' in window)) return toast('Browser tidak mendukung notifikasi', 'error');
-    const p = await Notification.requestPermission(); if (p !== 'granted') return toast('Izin notifikasi ditolak di browser', 'error');
-    localStorage.setItem('orvix_notif', '1'); render(); toast('Notifikasi aktif', 'success');
-  });
+  paintInstall(); paintPush();
   $('#rowStory').onclick = () => {
     const m = openModal({ title: 'Visibilitas story', sheet: true, html: `<div class="col">${Object.entries(VIS).map(([k, v]) => `<button class="btn ${k === me.story_visibility ? 'primary' : ''}" data-v="${k}">${v}</button>`).join('')}</div>` });
     m.el.onclick = guard(async (e) => { const v = e.target.closest('[data-v]')?.dataset.v; if (!v) return; await upd({ story_visibility: v }); m.close(); render(); });
