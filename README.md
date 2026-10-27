@@ -88,3 +88,41 @@ Jalankan berurutan, satu file per Run (idempotent): `13a-blokir.sql` → `13b-ha
 ## 11. Responsif dan pilih pesan (tekan lama)
 - `css/responsive.css` dimuat terakhir di semua halaman: layout chat tidak lagi melebar mengikuti teks header (grid `minmax(0,1fr)`), ukuran teks fluid (`html{font-size:clamp(...)}`, semua `font-size` kini `rem`), input 16px agar iOS tidak zoom.
 - Di dalam chat, tekan lama sebuah pesan untuk memilihnya (seperti memilih chat di daftar). Ketuk pesan lain untuk menambah/melepas. Bar atas menampilkan Salin, Edit (1 pesan milikmu, dalam batas edit), Laporkan (1 pesan orang lain), dan Hapus. Hapus untuk semua hanya untuk pesanmu sendiri dalam 1 jam (batas dari `sql-parts/13b-hapus-pesan-chat.sql`, jalankan jika belum). Tombol Kembali/Esc membatalkan pilihan. Ketuk biasa pada pesan tetap membuka menu lama.
+
+## 12. Panggilan suara & video (sql-parts/14a-panggilan.sql)
+Jalankan `14a-panggilan.sql` di SQL Editor (idempotent), lalu deploy ulang frontend dan tutup tab lama.
+- **Realtime Authorization**: signaling memakai private Broadcast. Policy `orvix_call_receive` dan `orvix_call_send` dibuat di `realtime.messages` oleh 14a (bila editor tidak punya izin, buat dari Dashboard, Realtime, Policies). Di Project Settings, Realtime, nonaktifkan "Allow public access" bila ingin private channel ditegakkan penuh.
+- **Konfigurasi** (tanpa deploy ulang): `update public.call_settings set max_group_video = 4, max_group_voice = 8, ring_timeout_secs = 45, max_starts_per_min = 5 where id = 1;` Batas awal adalah tebakan konservatif, sesuaikan setelah uji perangkat nyata.
+- **STUN**: `CALL_STUN` di `js/config.js`. Tidak ada TURN.
+- **Akses**: tabel `calls`/`call_participants` hanya bisa dibaca; semua perubahan lewat RPC `call_start/join/leave/decline/heartbeat`. SDP/ICE tidak disimpan.
+- **Batasan**: tanpa TURN, koneksi gagal pada NAT simetris/CGNAT/firewall tertentu. Grup memakai mesh (n peserta = n(n-1)/2 koneksi), maka dibatasi. Panggilan putus bila halaman ditutup/dimuat ulang (aplikasi ini multi-halaman) dan tidak ada push notification: dering hanya saat ORVIX terbuka. Peserta dalam satu panggilan saling percaya pada signaling (identitas pengirim tidak diverifikasi kriptografis di dalam panggilan).
+- **Debug**: saat panggilan aktif, `await window.__orvixCall.stats()` di konsol menampilkan byte, paket hilang, dan RTT per peserta.
+
+## 13. PWA dan notifikasi push (sql-parts/15a-push.sql)
+**PWA**: `manifest.webmanifest`, `sw.js` (hanya push + klik notifikasi, tanpa cache offline), ikon di `assets/icon-*.png`. `vercel.json` menyajikan `sw.js` dengan `Service-Worker-Allowed: /` dan tanpa cache, serta manifest dengan MIME `application/manifest+json`. Tombol "Install ORVIX" di Profil hanya muncul bila browser memberi prompt instalasi; selain itu tampil petunjuk manual. Wajib HTTPS (Vercel otomatis).
+
+**Push, langkah deploy (sekali):**
+1. `node scripts/gen-vapid.mjs` menghasilkan 3 nilai. Tempel `VAPID_PUBLIC_KEY` ke `js/config.js`.
+2. Secrets Edge Function (hanya ini yang dipakai): `supabase secrets set VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJECT=mailto:emailmu@domain.com PUSH_WEBHOOK_SECRET=...`. `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` disediakan otomatis oleh Supabase; jangan taruh di frontend.
+3. `supabase functions deploy push-send --no-verify-jwt` (diamankan header `x-push-secret`, bukan JWT).
+4. Jalankan `sql-parts/15a-push.sql`, lalu SEKALI: `select public.push_configure('https://<ref>.supabase.co/functions/v1/push-send', '<PUSH_WEBHOOK_SECRET yang sama>');`
+5. Deploy ulang frontend, tutup tab lama. Profil, Notifikasi, aktifkan, lalu "Kirim notifikasi uji" untuk memverifikasi rantai server.
+
+**Aturan**: pengirim tidak pernah menerima notifikasinya sendiri; penerima yang memblokir/diblokir pengirim dilewati; preferensi per jenis dan "tampilkan isi pesan" dihormati; langganan 404/410 dihapus, galat berulang menonaktifkan langganan. Logout melepas perangkat dari akun.
+
+**Batasan jujur**: iPhone/iPad hanya mendukung push untuk ORVIX yang dipasang ke Layar Utama (iOS 16.4+). Notifikasi panggilan bergantung pada browser/OS (dering di layar kunci tidak dijamin; TTL hanya 30 detik). Push tidak berjalan di Firefox untuk Android yang menghemat daya/diblokir pabrikan tertentu, dan HP dengan penghemat baterai agresif dapat menunda atau membuang push. Notifikasi di dalam aplikasi (Realtime) tetap ada; saat Web Push aktif, notifikasi dalam-halaman lama dimatikan agar tidak ganda.
+
+
+## 16. Pesan lanjutan Premium (terjadwal, draft, pencarian)
+
+**Urutan SQL**: jalankan `sql-parts/16a-pesan-lanjutan.sql` setelah `13b`, `13d`, dan `15a` (aman dijalankan ulang).
+
+- **Pesan terjadwal**: dikirim oleh server, bukan browser. Fungsi `orvix_dispatch_scheduled()` dipanggil `pg_cron` tiap menit. Aktifkan extension **pg_cron** di Dashboard Supabase (Database, Extensions), lalu jalankan ulang bagian 5 file SQL jika muncul NOTICE "pg_cron belum aktif". Tanpa pg_cron pesan tidak terkirim. Verifikasi: `select * from cron.job where jobname = 'orvix-dispatch-scheduled';` dan `select * from cron.job_run_details order by start_time desc limit 5;`.
+- Aturan di database: hanya Premium aktif, harus bisa mengirim ke percakapan (anggota, tidak diblokir, tidak ditangguhkan), jadwal 30 detik sampai 1 tahun ke depan, maks. 30 jadwal aktif. Saat jadwal tiba dicek ulang; bila Premium habis atau tidak lagi boleh mengirim, status menjadi Gagal dengan alasannya. Kirim ganda dicegah kunci baris (`FOR UPDATE SKIP LOCKED`) dan `message_id` yang unik.
+- **Draft**: tersimpan per pengguna dan per percakapan (tabel `orvix_drafts`, RLS hanya milik sendiri), tersinkron antar perangkat. Khusus Premium; data tetap ada bila Premium berakhir tetapi tidak ditampilkan.
+- **Pencarian**: `orvix_search_messages` berjalan dengan hak pengguna (RLS pesan tetap berlaku) dan menghormati "hapus chat". Gratis: kata kunci di satu percakapan. Premium: semua percakapan (90 hari) plus filter pengirim, tanggal, jenis. Tanpa indeks tambahan.
+- UI: menu percakapan (titik tiga) dan sheet Mulai (tombol +) di halaman chat; tombol jam di kolom ketik untuk Premium.
+
+**Belum dikerjakan dari daftar fitur Premium** (batch berikutnya): tema dan wallpaper, kustomisasi bubble lanjutan, bingkai avatar dan gaya bio, reaksi dan efek animasi, story Premium, terjemahan pesan (butuh API penerjemah), musik profil, username eksklusif, kontrol tanda baca, alat grup Premium.
+
+**Checklist uji**: (1) akun gratis: tombol jam tidak muncul, menu menampilkan lencana Premium, RPC ditolak; (2) akun Premium: jadwalkan 2 menit lagi, tutup aplikasi, pesan masuk di chat; (3) ubah/batalkan sebelum waktunya; (4) blokir lawan lalu tunggu jadwal: status Gagal; (5) ketik draft, pindah chat, kembali, draft pulih dan di perangkat lain juga; (6) cari `50%` dan `hari_ini`: dicocokkan apa adanya.
