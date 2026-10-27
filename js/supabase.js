@@ -50,8 +50,10 @@ export async function requireAuth({ admin = false, shell = null } = {}) {
   if (profile) applyLook(profile);
   if (profile) { verify().then((p) => p && Object.assign(profile, p)).catch(() => {}); }
   else profile = await verify();
-  sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT') { cacheMe(null); cleanupAll(); location.replace('/'); } });
+  sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT') { import('./push.js').then((m) => m.detachForLogout()).catch(() => {}); cacheMe(null); cleanupAll(); location.replace('/'); } });
   startPresence();
+  import('./push.js').then((m) => m.syncPush(user.id)).catch(() => {});   // pulihkan langganan push yang kedaluwarsa
+  import('./calls-core.js').then((m) => m.initCalls(user)).catch((e) => console.warn('[calls]', e));   // panggilan masuk di semua halaman aplikasi
   return { user, profile };
 }
 
@@ -62,7 +64,7 @@ function startPresence() {
   document.addEventListener('visibilitychange', ping);
 }
 
-export async function logout() { cacheMe(null); cleanupAll(); await sb.auth.signOut(); location.replace('/'); }
+export async function logout() { try { const m = await import('./push.js'); await m.detachForLogout(); } catch { /* abaikan */ } cacheMe(null); cleanupAll(); await sb.auth.signOut(); location.replace('/'); }
 
 // banner_url baru ada setelah sql-parts/12h dijalankan; bila kolom belum ada, query otomatis jatuh kembali tanpa banner.
 let bannerCol = true;
